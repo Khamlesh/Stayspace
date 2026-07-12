@@ -1,0 +1,52 @@
+# Environment variables & secrets
+.env
+.env.*
+*.pem
+*.key
+
+# C++ Build outputs
+*.exe
+*.o
+*.obj
+*.dll
+*.so
+*.out
+build/
+
+# Python caching & venv
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+env/
+
+# Node/React outputs
+node_modules/
+dist/
+build/
+.eslintcache
+
+# IDE / OS
+.vscode/
+.idea/
+*.suo
+*.sln
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Dynamic uploads and receipts
+Uploads/
+Receipts/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+npm-debug.log*

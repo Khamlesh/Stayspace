@@ -1,0 +1,331 @@
+import { useState, useEffect, useMemo } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { propertiesAPI } from '../api/client'
+import { useAuth } from '../hooks/useAuth'
+import { formatRupees } from '../utils/currency'
+
+const PropertyDetails = () => {
+  const { id } = useParams()
+  const { isAuthenticated } = useAuth()
+  const navigate = useNavigate()
+  const [property, setProperty] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [checkInDate, setCheckInDate] = useState('')
+  const [checkOutDate, setCheckOutDate] = useState('')
+  const [guests, setGuests] = useState(1)
+  const [imgError, setImgError] = useState(false)
+  const [bookedRanges, setBookedRanges] = useState([])
+  const [dateError, setDateError] = useState('')
+
+  useEffect(() => {
+    loadPropertyDetails()
+    loadAvailability()
+  }, [id])
+
+  const loadPropertyDetails = async () => {
+    try {
+      const response = await propertiesAPI.getDetails(id)
+      if (response.data.status === 'success') {
+        setProperty(response.data.data)
+      }
+    } catch (error) {
+      console.error('Error loading property:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadAvailability = async () => {
+    try {
+      const response = await propertiesAPI.getAvailability(id)
+      if (response.data.status === 'success') {
+        setBookedRanges(response.data.data || [])
+      }
+    } catch (error) {
+      console.error('Error loading availability:', error)
+    }
+  }
+
+  const isDateBooked = (dateStr) => {
+    const d = new Date(dateStr)
+    d.setHours(0, 0, 0, 0)
+    for (const range of bookedRanges) {
+      const ci = new Date(range.check_in)
+      ci.setHours(0, 0, 0, 0)
+      const co = new Date(range.check_out)
+      co.setHours(0, 0, 0, 0)
+      if (d >= ci && d < co) return true
+    }
+    return false
+  }
+
+  const isRangeAvailable = (ciStr, coStr) => {
+    const ci = new Date(ciStr)
+    ci.setHours(0, 0, 0, 0)
+    const co = new Date(coStr)
+    co.setHours(0, 0, 0, 0)
+    for (const range of bookedRanges) {
+      const bCi = new Date(range.check_in)
+      bCi.setHours(0, 0, 0, 0)
+      const bCo = new Date(range.check_out)
+      bCo.setHours(0, 0, 0, 0)
+      if (ci < bCo && co > bCi) return false
+    }
+    return true
+  }
+
+  const today = new Date().toISOString().split('T')[0]
+
+  const handleCheckInChange = (e) => {
+    const val = e.target.value
+    setCheckInDate(val)
+    setDateError('')
+    if (checkOutDate && val >= checkOutDate) {
+      setCheckOutDate('')
+    }
+  }
+
+  const handleCheckOutChange = (e) => {
+    const val = e.target.value
+    if (checkInDate && val <= checkInDate) {
+      setDateError('Check-out must be after check-in')
+      return
+    }
+    if (checkInDate && !isRangeAvailable(checkInDate, val)) {
+      setDateError('Selected dates overlap with an existing booking')
+      setCheckOutDate('')
+      return
+    }
+    setCheckOutDate(val)
+    setDateError('')
+  }
+
+  const nights = checkInDate && checkOutDate
+    ? Math.max(1, Math.ceil((new Date(checkOutDate) - new Date(checkInDate)) / (1000 * 60 * 60 * 24)))
+    : 0
+  const subtotal = property ? property.price_per_night * nights : 0
+  const serviceFee = Math.round(subtotal * 0.1)
+  const total = subtotal + serviceFee
+
+  const handleBooking = () => {
+    if (!isAuthenticated) {
+      navigate('/login')
+      return
+    }
+    if (!checkInDate || !checkOutDate) {
+      setDateError('Please select check-in and check-out dates')
+      return
+    }
+    if (!isRangeAvailable(checkInDate, checkOutDate)) {
+      setDateError('Selected dates are no longer available')
+      return
+    }
+    navigate(`/booking/${id}`, {
+      state: {
+        checkInDate,
+        checkOutDate,
+        guests,
+        propertyTitle: property.title,
+        propertyAddress: property.address,
+        propertyType: property.property_type,
+        imageUrl: property.image_url,
+        pricePerNight: property.price_per_night,
+        maxGuests: property.max_guests
+      }
+    })
+  }
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-12 text-center">
+        <div className="h-96 bg-divider rounded-card animate-pulse mb-8" />
+        <div className="h-8 w-64 bg-divider rounded animate-pulse mx-auto" />
+      </div>
+    )
+  }
+
+  if (!property) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-12 text-center">
+        <p className="text-secondary-text text-lg">Property not found</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      {property.image_url && !imgError ? (
+        <div className="rounded-card overflow-hidden h-64 sm:h-80 lg:h-96 mb-8">
+          <img
+            src={property.image_url}
+            alt={property.title}
+            className="w-full h-full object-cover"
+            onError={() => setImgError(true)}
+          />
+        </div>
+      ) : (
+        <div className="bg-gradient-to-br from-primary/20 via-primary/10 to-primary/5 rounded-card h-64 sm:h-80 lg:h-96 flex items-center justify-center mb-8">
+          <span className="text-7xl font-bold text-primary/20">{property.title?.charAt(0)}</span>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2">
+          <div className="flex items-center gap-3 mb-2">
+            {property.property_type && (
+              <span className="text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-primary/10 text-primary">
+                {property.property_type}
+              </span>
+            )}
+          </div>
+          <h1 className="text-3xl lg:text-4xl font-bold mb-2 text-main-text">{property.title}</h1>
+          <p className="text-secondary-text mb-4">{property.address}</p>
+
+          <div className="flex items-center gap-4 mb-8 pb-8 border-b border-divider">
+            <div className="text-primary text-xl font-bold flex items-center gap-1">
+              ★ {property.average_rating || 'New'}
+            </div>
+            <div className="text-secondary-text text-sm">({property.review_count || 0} reviews)</div>
+            <div className="text-secondary-text text-sm">• {property.max_guests} guests max</div>
+          </div>
+
+          <div className="mb-8">
+            <h2 className="text-xl font-bold mb-3 text-main-text">About this property</h2>
+            <p className="text-secondary-text leading-relaxed">{property.description}</p>
+          </div>
+
+          {property.amenities && property.amenities.length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-xl font-bold mb-3 text-main-text">Amenities</h2>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {property.amenities.map((amenity, idx) => (
+                  <div key={idx} className="flex items-center gap-2 p-3 bg-background rounded-xl">
+                    <span className="text-success text-sm">✓</span>
+                    <span className="text-main-text text-sm">{amenity}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {property.host && (
+            <div className="mb-8 pb-8 border-b border-divider">
+              <h2 className="text-xl font-bold mb-3 text-main-text">Your Host</h2>
+              <div className="bg-background rounded-xl p-5">
+                <div className="flex items-start gap-4">
+                  <div className="w-14 h-14 bg-primary rounded-full flex items-center justify-center text-white text-lg font-bold flex-shrink-0">
+                    {property.host.name?.charAt(0)}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-main-text">{property.host.name}</h3>
+                    <p className="text-sm text-secondary-text mb-1">{property.host.email}</p>
+                    {property.host.bio && <p className="text-sm text-secondary-text">{property.host.bio}</p>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <h2 className="text-xl font-bold mb-3 text-main-text">Reviews</h2>
+            <div className="space-y-3">
+              {property.reviews && property.reviews.length > 0 ? (
+                property.reviews.map((review, idx) => (
+                  <div key={idx} className="bg-background rounded-xl p-5 border border-divider">
+                    <div className="flex justify-between items-start mb-2">
+                      <h4 className="font-semibold text-main-text text-sm">{review.guest_name}</h4>
+                      <span className="text-primary text-sm">★ {review.rating}</span>
+                    </div>
+                    <p className="text-sm text-secondary-text">{review.comment}</p>
+                    <p className="text-xs text-secondary-text/70 mt-2">{review.created_at}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-secondary-text text-sm">No reviews yet</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div className="bg-white rounded-card shadow-card border border-divider p-6 sticky top-24">
+            <div className="mb-5">
+              <div className="text-3xl font-bold text-primary mb-1">
+                {formatRupees(property.price_per_night)}
+              </div>
+              <p className="text-sm text-secondary-text">per night</p>
+            </div>
+
+            <div className="space-y-3 mb-5">
+              <div>
+                <label className="block text-xs font-medium text-secondary-text mb-1">Check-in</label>
+                <input
+                  type="date"
+                  value={checkInDate}
+                  onChange={handleCheckInChange}
+                  className="input-field text-sm"
+                  min={today}
+                />
+                {checkInDate && isDateBooked(checkInDate) && (
+                  <p className="text-xs text-danger mt-1">This date is booked</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-secondary-text mb-1">Check-out</label>
+                <input
+                  type="date"
+                  value={checkOutDate}
+                  onChange={handleCheckOutChange}
+                  className="input-field text-sm"
+                  min={checkInDate || today}
+                />
+              </div>
+              {dateError && (
+                <p className="text-xs text-danger mt-1">{dateError}</p>
+              )}
+              <div>
+                <label className="block text-xs font-medium text-secondary-text mb-1">Guests</label>
+                <select
+                  value={guests}
+                  onChange={(e) => setGuests(parseInt(e.target.value))}
+                  className="input-field text-sm"
+                >
+                  {Array.from({ length: property.max_guests || 6 }, (_, i) => i + 1).map(n => (
+                    <option key={n} value={n}>{n} Guest{n > 1 ? 's' : ''}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <button
+              onClick={handleBooking}
+              disabled={!checkInDate || !checkOutDate || !!dateError}
+              className="btn-primary w-full mb-4 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isAuthenticated ? 'Reserve Now' : 'Login to Reserve'}
+            </button>
+
+            {nights > 0 && (
+              <div className="border-t border-divider pt-4 space-y-2 text-sm text-secondary-text">
+                <div className="flex justify-between">
+                  <span>{formatRupees(property.price_per_night)} × {nights} night{nights > 1 ? 's' : ''}</span>
+                  <span>{formatRupees(subtotal)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Service fee</span>
+                  <span>{formatRupees(serviceFee)}</span>
+                </div>
+                <div className="border-t border-divider pt-2 flex justify-between font-bold text-main-text">
+                  <span>Total</span>
+                  <span>{formatRupees(total)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default PropertyDetails
