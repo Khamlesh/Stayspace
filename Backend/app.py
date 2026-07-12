@@ -210,7 +210,10 @@ def _guest_guard(body):
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173"])
+    CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5000", "http://127.0.0.1:5000"],
+         allow_headers=["X-Auth-Token", "Content-Type", "Authorization"],
+         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+         supports_credentials=True)
     app.config["JSON_SORT_KEYS"] = False
     
     # Seed demo users on startup
