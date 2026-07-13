@@ -17,10 +17,11 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 CORE_EXE = ROOT_DIR / "stayspace_core.exe"
 
 DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': 'Khamlesh@1234',
-    'database': 'stayspace'
+    'host': os.environ.get('MYSQLHOST', os.environ.get('DB_HOST', 'localhost')),
+    'port': int(os.environ.get('MYSQLPORT', os.environ.get('DB_PORT', 3306))),
+    'user': os.environ.get('MYSQLUSER', os.environ.get('DB_USER', 'root')),
+    'password': os.environ.get('MYSQLPASSWORD', os.environ.get('DB_PASSWORD', 'Khamlesh@1234')),
+    'database': os.environ.get('MYSQLDATABASE', os.environ.get('DB_NAME', 'stayspace'))
 }
 
 def generate_salt(length=32):
@@ -231,7 +232,18 @@ def _guest_guard(body):
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5000", "http://127.0.0.1:5000"],
+
+    cors_origins = [
+        "http://localhost:5173", "http://127.0.0.1:5173",
+        "http://localhost:5000", "http://127.0.0.1:5000",
+    ]
+    if os.environ.get("FRONTEND_URL"):
+        cors_origins.append(os.environ["FRONTEND_URL"])
+    if os.environ.get("CORS_ORIGINS"):
+        cors_origins.extend(
+            o.strip() for o in os.environ["CORS_ORIGINS"].split(",") if o.strip()
+        )
+    CORS(app, origins=cors_origins,
          allow_headers=["X-Auth-Token", "Content-Type", "Authorization"],
          methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
          supports_credentials=True)
