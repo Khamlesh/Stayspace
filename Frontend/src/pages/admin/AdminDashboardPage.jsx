@@ -12,7 +12,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts'
 
-const COLORS = ['#FF385C', '#3B82F6', '#22C55E', '#F59E0B', '#8B5CF6', '#EC4899']
+const COLORS = ['#F43F5E', '#3B82F6', '#22C55E', '#F59E0B', '#8B5CF6', '#EC4899']
 
 function StatCard({ icon: Icon, label, value, change, isPositive, loading, highlight }) {
   return (
@@ -174,13 +174,13 @@ export default function AdminDashboardPage() {
 
   const pendingHosts = useMemo(() => hosts.filter(h => h.status === 'pending'), [hosts])
   const recentBookings = useMemo(() => bookings.slice(0, 5), [bookings])
-  const completedBookings = useMemo(() => bookings.filter(b => b.status === 'Completed').length, [bookings])
-  const cancelledBookings = useMemo(() => bookings.filter(b => b.status === 'Cancelled').length, [bookings])
   const openComplaints = useMemo(() => complaints.filter(c => c.status !== 'Resolved' && c.status !== 'Closed').length, [complaints])
 
   const revenueChartData = stats?.monthly_revenue_chart || []
   const userGrowthData = stats?.user_growth || []
   const hostGrowthData = stats?.host_growth || []
+  const propertyTypeDist = stats?.property_type_distribution || []
+  const bookingStatusDist = stats?.booking_status_distribution || []
 
   const handleApproveHost = async (hostId) => {
     setProcessing(true)
@@ -232,15 +232,14 @@ export default function AdminDashboardPage() {
           />
           <StatCard
             icon={HiOutlineUserCircle}
-            label="Total Hosts"
-            value={stats?.total_hosts ?? 0}
+            label="Approved Hosts"
+            value={stats?.active_hosts ?? 0}
             loading={loading}
           />
           <StatCard
-            icon={HiOutlineClock}
-            label="Pending Approvals"
-            value={pendingHosts.length}
-            highlight={pendingHosts.length > 0}
+            icon={HiOutlineCheckCircle}
+            label="Completed Bookings"
+            value={stats?.completed_bookings ?? 0}
             loading={loading}
           />
           <StatCard
@@ -256,9 +255,9 @@ export default function AdminDashboardPage() {
             loading={loading}
           />
           <StatCard
-            icon={HiOutlineCheckCircle}
-            label="Active Bookings"
-            value={stats?.active_bookings ?? 0}
+            icon={HiOutlineClock}
+            label="Cancelled Bookings"
+            value={stats?.cancelled_bookings ?? 0}
             loading={loading}
           />
           <StatCard
@@ -288,8 +287,8 @@ export default function AdminDashboardPage() {
               <AreaChart data={revenueChartData}>
                 <defs>
                   <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#FF385C" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#FF385C" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#F43F5E" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#F43F5E" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
@@ -299,7 +298,7 @@ export default function AdminDashboardPage() {
                   contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }}
                   formatter={(value, name) => [name === 'revenue' || name === 'earnings' ? formatRupees(value) : value, name === 'revenue' || name === 'earnings' ? 'Revenue' : 'Bookings']}
                 />
-                <Area type="monotone" dataKey="revenue" stroke="#FF385C" strokeWidth={2.5} fill="url(#colorRevenue)" />
+                <Area type="monotone" dataKey="revenue" stroke="#F43F5E" strokeWidth={2.5} fill="url(#colorRevenue)" />
                 <Line type="monotone" dataKey="bookings" stroke="#3B82F6" strokeWidth={2} dot={{ r: 3 }} />
               </AreaChart>
             </ResponsiveContainer>
@@ -320,11 +319,11 @@ export default function AdminDashboardPage() {
             <div className="space-y-3">
               <div className="rounded-xl bg-success/5 border border-success/10 p-4">
                 <p className="text-xs font-medium text-success">Completed Bookings</p>
-                <p className="text-2xl font-bold text-main-text mt-1">{completedBookings}</p>
+                <p className="text-2xl font-bold text-main-text mt-1">{stats?.completed_bookings ?? 0}</p>
               </div>
               <div className="rounded-xl bg-danger/5 border border-danger/10 p-4">
                 <p className="text-xs font-medium text-danger">Cancelled Bookings</p>
-                <p className="text-2xl font-bold text-main-text mt-1">{cancelledBookings}</p>
+                <p className="text-2xl font-bold text-main-text mt-1">{stats?.cancelled_bookings ?? 0}</p>
               </div>
               <div className="rounded-xl bg-warning/5 border border-warning/10 p-4">
                 <div className="flex items-center gap-2">
@@ -382,6 +381,61 @@ export default function AdminDashboardPage() {
             </ResponsiveContainer>
           ) : (
             <EmptyState message="No host growth data yet" />
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="dashboard-card">
+          <h2 className="text-lg font-semibold text-main-text mb-4">Property Type Distribution</h2>
+          {loading ? (
+            <div className="h-64 animate-pulse bg-divider rounded-xl" />
+          ) : propertyTypeDist.length > 0 ? (
+            <ResponsiveContainer width="100%" height={260}>
+              <PieChart>
+                <Pie
+                  data={propertyTypeDist}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={100}
+                  paddingAngle={4}
+                  dataKey="count"
+                  nameKey="type"
+                  label={({ type, percent }) => `${type} ${(percent * 100).toFixed(0)}%`}
+                >
+                  {propertyTypeDist.map((_, i) => (
+                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <EmptyState message="No property data yet" />
+          )}
+        </div>
+
+        <div className="dashboard-card">
+          <h2 className="text-lg font-semibold text-main-text mb-4">Booking Status Distribution</h2>
+          {loading ? (
+            <div className="h-64 animate-pulse bg-divider rounded-xl" />
+          ) : bookingStatusDist.length > 0 ? (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={bookingStatusDist}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                <XAxis dataKey="status" tick={{ fontSize: 12, fill: '#6B7280' }} />
+                <YAxis tick={{ fontSize: 12, fill: '#6B7280' }} />
+                <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }} />
+                <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+                  {bookingStatusDist.map((entry, i) => (
+                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <EmptyState message="No booking data yet" />
           )}
         </div>
       </div>

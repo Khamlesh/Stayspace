@@ -792,12 +792,12 @@ def create_app() -> Flask:
                     """
                     SELECT COALESCE(SUM(DATEDIFF(
                         LEAST(check_out, LAST_DAY(CURRENT_DATE())),
-                        GREATEST(check_in, DATE_FORMAT(CURRENT_DATE(), '%%Y-%%m-01'))
+                        GREATEST(check_in, DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01'))
                     ) + 1), 0) AS booked_days
                     FROM Bookings
                     WHERE property_id = %s AND status != 'Cancelled'
                       AND check_in <= LAST_DAY(CURRENT_DATE())
-                      AND check_out >= DATE_FORMAT(CURRENT_DATE(), '%%Y-%%m-01')
+                      AND check_out >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
                     """,
                     (prop["id"],)
                 )
@@ -954,7 +954,7 @@ def create_app() -> Flask:
             cursor.execute(
                 """
                 SELECT
-                    DATE_FORMAT(m.month_start, '%%b') AS month_label,
+                    DATE_FORMAT(m.month_start, '%b') AS month_label,
                     m.month_start,
                     COALESCE((
                         SELECT SUM(pay.amount)
@@ -962,28 +962,28 @@ def create_app() -> Flask:
                         JOIN Bookings b ON b.id = pay.booking_id
                         JOIN Properties p ON p.id = b.property_id
                         WHERE p.host_id = %s AND pay.status = 'Success'
-                          AND DATE_FORMAT(pay.created_at, '%%Y-%%m') = DATE_FORMAT(m.month_start, '%%Y-%%m')
+                          AND DATE_FORMAT(pay.created_at, '%Y-%m') = DATE_FORMAT(m.month_start, '%Y-%m')
                     ), 0) AS earnings,
                     COALESCE((
                         SELECT COUNT(*)
                         FROM Bookings b
                         JOIN Properties p ON p.id = b.property_id
                         WHERE p.host_id = %s AND b.status != 'Cancelled'
-                          AND DATE_FORMAT(b.created_at, '%%Y-%%m') = DATE_FORMAT(m.month_start, '%%Y-%%m')
+                          AND DATE_FORMAT(b.created_at, '%Y-%m') = DATE_FORMAT(m.month_start, '%Y-%m')
                     ), 0) AS bookings,
                     COALESCE((
                         SELECT ROUND(AVG(
                             LEAST(100, GREATEST(0,
                                 (SELECT COUNT(*) FROM Bookings bx
                                  WHERE bx.property_id = p2.id AND bx.status != 'Cancelled'
-                                   AND DATE_FORMAT(bx.created_at, '%%Y-%%m') = DATE_FORMAT(m.month_start, '%%Y-%%m')
+                                   AND DATE_FORMAT(bx.created_at, '%Y-%m') = DATE_FORMAT(m.month_start, '%Y-%m')
                                 ) * 10
                             ))
                         ), 0)
                         FROM Properties p2 WHERE p2.host_id = %s
                     ), 0) AS occupancy
                 FROM (
-                    SELECT DATE_SUB(DATE_FORMAT(CURRENT_DATE(), '%%Y-%%m-01'), INTERVAL seq MONTH) AS month_start
+                    SELECT DATE_SUB(DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01'), INTERVAL seq MONTH) AS month_start
                     FROM (
                         SELECT 0 AS seq UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5
                     ) months
@@ -1590,7 +1590,7 @@ def create_app() -> Flask:
 
             cursor.execute(
                 """
-                SELECT DATE_FORMAT(pay.created_at, '%%Y-%%m') AS month,
+                SELECT DATE_FORMAT(pay.created_at, '%Y-%m') AS month,
                        COALESCE(SUM(pay.amount), 0) AS revenue,
                        COUNT(DISTINCT b.id) AS bookings
                 FROM Payments pay
@@ -2177,24 +2177,27 @@ def create_app() -> Flask:
 
             user_growth = []
             cursor.execute("""
-                SELECT DATE_FORMAT(created_at, '%%Y-%%m') AS month, COUNT(*) AS count
+                SELECT DATE_FORMAT(created_at, '%b') AS month_label, COUNT(*) AS count
                 FROM Users WHERE role = 'Guest'
-                GROUP BY month ORDER BY month DESC LIMIT 6
+                GROUP BY DATE_FORMAT(created_at, '%Y-%m'), month_label
+                ORDER BY DATE_FORMAT(created_at, '%Y-%m') ASC LIMIT 6
             """)
             for row in cursor.fetchall():
-                user_growth.append({"month": row["month"], "count": int(row["count"])})
+                user_growth.append({"month_label": row["month_label"], "users": int(row["count"])})
 
             host_growth = []
             cursor.execute("""
-                SELECT DATE_FORMAT(created_at, '%%Y-%%m') AS month, COUNT(*) AS count
-                FROM Hosts GROUP BY month ORDER BY month DESC LIMIT 6
+                SELECT DATE_FORMAT(created_at, '%b') AS month_label, COUNT(*) AS count
+                FROM Hosts
+                GROUP BY DATE_FORMAT(created_at, '%Y-%m'), month_label
+                ORDER BY DATE_FORMAT(created_at, '%Y-%m') ASC LIMIT 6
             """)
             for row in cursor.fetchall():
-                host_growth.append({"month": row["month"], "count": int(row["count"])})
+                host_growth.append({"month_label": row["month_label"], "hosts": int(row["count"])})
 
             booking_trends = []
             cursor.execute("""
-                SELECT DATE_FORMAT(created_at, '%%Y-%%m') AS month, COUNT(*) AS count
+                SELECT DATE_FORMAT(created_at, '%Y-%m') AS month, COUNT(*) AS count
                 FROM Bookings GROUP BY month ORDER BY month DESC LIMIT 6
             """)
             for row in cursor.fetchall():
@@ -2202,13 +2205,27 @@ def create_app() -> Flask:
 
             revenue_analytics = []
             cursor.execute("""
-                SELECT DATE_FORMAT(created_at, '%%Y-%%m') AS month,
+                SELECT DATE_FORMAT(created_at, '%Y-%m') AS month,
                        COALESCE(SUM(amount), 0) AS revenue
                 FROM Payments WHERE status = 'Success'
                 GROUP BY month ORDER BY month DESC LIMIT 6
             """)
             for row in cursor.fetchall():
                 revenue_analytics.append({"month": row["month"], "revenue": float(row["revenue"])})
+
+            property_type_distribution = []
+            cursor.execute("""
+                SELECT property_type, COUNT(*) AS count FROM Properties GROUP BY property_type
+            """)
+            for row in cursor.fetchall():
+                property_type_distribution.append({"type": row["property_type"] or "Unknown", "count": int(row["count"])})
+
+            booking_status_distribution = []
+            cursor.execute("""
+                SELECT status, COUNT(*) AS count FROM Bookings GROUP BY status
+            """)
+            for row in cursor.fetchall():
+                booking_status_distribution.append({"status": row["status"], "count": int(row["count"])})
 
             property_analytics = []
             cursor.execute("""
@@ -2230,12 +2247,12 @@ def create_app() -> Flask:
                 SELECT p.title,
                     COALESCE(SUM(
                         DATEDIFF(LEAST(b.check_out, LAST_DAY(CURRENT_DATE())),
-                                 GREATEST(b.check_in, DATE_FORMAT(CURRENT_DATE(), '%%Y-%%m-01'))) + 1
+                                 GREATEST(b.check_in, DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01'))) + 1
                     ), 0) AS booked_days
                 FROM Properties p
                 LEFT JOIN Bookings b ON b.property_id = p.id AND b.status != 'Cancelled'
                     AND b.check_in <= LAST_DAY(CURRENT_DATE())
-                    AND b.check_out >= DATE_FORMAT(CURRENT_DATE(), '%%Y-%%m-01')
+                    AND b.check_out >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
                 GROUP BY p.id, p.title
                 ORDER BY booked_days DESC LIMIT 10
             """)
@@ -2255,14 +2272,14 @@ def create_app() -> Flask:
 
             monthly_revenue_chart = []
             cursor.execute("""
-                SELECT DATE_FORMAT(pay.created_at, '%%b') AS month_label,
+                SELECT DATE_FORMAT(pay.created_at, '%b') AS month_label,
                        COALESCE(SUM(pay.amount), 0) AS revenue,
                        COUNT(DISTINCT b.id) AS bookings
                 FROM Payments pay
                 JOIN Bookings b ON b.id = pay.booking_id
                 WHERE pay.status = 'Success'
-                GROUP BY DATE_FORMAT(pay.created_at, '%%Y-%%m'), month_label
-                ORDER BY DATE_FORMAT(pay.created_at, '%%Y-%%m') ASC LIMIT 12
+                GROUP BY DATE_FORMAT(pay.created_at, '%Y-%m'), month_label
+                ORDER BY DATE_FORMAT(pay.created_at, '%Y-%m') ASC LIMIT 12
             """)
             for row in cursor.fetchall():
                 monthly_revenue_chart.append({
@@ -2296,6 +2313,8 @@ def create_app() -> Flask:
                 "host_growth": host_growth,
                 "booking_trends": booking_trends,
                 "revenue_analytics": revenue_analytics,
+                "property_type_distribution": property_type_distribution,
+                "booking_status_distribution": booking_status_distribution,
                 "property_analytics": property_analytics,
                 "occupancy_data": occupancy_data,
                 "review_analytics": review_analytics,
@@ -2716,12 +2735,12 @@ def create_app() -> Flask:
 
             monthly_data = []
             cursor.execute("""
-                SELECT DATE_FORMAT(b.created_at, '%%b') AS month_label,
+                SELECT DATE_FORMAT(b.created_at, '%b') AS month_label,
                        COUNT(*) AS bookings,
                        COALESCE(SUM(b.total_price), 0) AS revenue
                 FROM Bookings b WHERE b.status != 'Cancelled'
-                GROUP BY DATE_FORMAT(b.created_at, '%%Y-%%m'), month_label
-                ORDER BY DATE_FORMAT(b.created_at, '%%Y-%%m') ASC LIMIT 12
+                GROUP BY DATE_FORMAT(b.created_at, '%Y-%m'), month_label
+                ORDER BY DATE_FORMAT(b.created_at, '%Y-%m') ASC LIMIT 12
             """)
             for row in cursor.fetchall():
                 monthly_data.append({
@@ -2824,7 +2843,7 @@ def create_app() -> Flask:
 
             revenue_by_month = []
             cursor.execute("""
-                SELECT DATE_FORMAT(pay.created_at, '%%Y-%%m') AS month,
+                SELECT DATE_FORMAT(pay.created_at, '%Y-%m') AS month,
                        COALESCE(SUM(pay.amount), 0) AS revenue,
                        COUNT(DISTINCT b.id) AS bookings
                 FROM Payments pay

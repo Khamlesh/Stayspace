@@ -74,7 +74,7 @@ export default function UserLayout() {
       >
         <div className={`flex items-center h-16 border-b border-divider px-4 ${collapsed ? 'justify-center' : 'gap-3'}`}>
           {!collapsed && (
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 overflow-hidden">
               <Logo size="md" linkTo="/user" />
             </div>
           )}

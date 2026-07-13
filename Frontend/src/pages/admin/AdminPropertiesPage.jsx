@@ -50,6 +50,8 @@ export default function AdminPropertiesPage() {
   const [deleteId, setDeleteId] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [selectedProperty, setSelectedProperty] = useState(null)
+  const [cityFilter, setCityFilter] = useState('')
+  const [hostFilter, setHostFilter] = useState('')
 
   useEffect(() => {
     loadProperties()
@@ -94,8 +96,29 @@ export default function AdminPropertiesPage() {
         p.address?.toLowerCase().includes(q)
       )
     }
+    if (cityFilter) {
+      list = list.filter(p => p.address?.toLowerCase().includes(cityFilter.toLowerCase()))
+    }
+    if (hostFilter) {
+      list = list.filter(p => p.host_name?.toLowerCase().includes(hostFilter.toLowerCase()))
+    }
     return list
-  }, [properties, activeTab, search])
+  }, [properties, activeTab, search, cityFilter, hostFilter])
+
+  const uniqueCities = useMemo(() => {
+    const cities = new Set()
+    properties.forEach(p => {
+      const parts = p.address?.split(',') || []
+      if (parts.length >= 2) cities.add(parts[parts.length - 1].trim())
+    })
+    return [...cities].sort()
+  }, [properties])
+
+  const uniqueHosts = useMemo(() => {
+    const hosts = new Set()
+    properties.forEach(p => { if (p.host_name) hosts.add(p.host_name) })
+    return [...hosts].sort()
+  }, [properties])
 
   const tabCounts = useMemo(() => ({
     all: properties.length,
@@ -168,6 +191,25 @@ export default function AdminPropertiesPage() {
           onChange={e => setSearch(e.target.value)}
           className="input-field pl-10"
         />
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        <select
+          value={cityFilter}
+          onChange={e => setCityFilter(e.target.value)}
+          className="input-field w-auto text-sm"
+        >
+          <option value="">All Cities</option>
+          {uniqueCities.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select
+          value={hostFilter}
+          onChange={e => setHostFilter(e.target.value)}
+          className="input-field w-auto text-sm"
+        >
+          <option value="">All Hosts</option>
+          {uniqueHosts.map(h => <option key={h} value={h}>{h}</option>)}
+        </select>
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-1">
