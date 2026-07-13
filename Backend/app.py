@@ -105,6 +105,13 @@ def _invoke_core(module: str, action: str, params: dict | None = None) -> tuple[
     )
 
     if process.returncode != 0:
+        print("===== CORE ENGINE FAILED =====")
+        print("Return Code:", process.returncode)
+        print("STDOUT:")
+        print(process.stdout)
+        print("STDERR:")
+        print(process.stderr)
+        print("==============================")
         return jsonify({"status": "error", "message": "Core engine execution failed.", "details": process.stderr.strip()}), 500
 
     try:
