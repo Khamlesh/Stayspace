@@ -30,12 +30,7 @@ export default function Layout({ children }) {
       <header className="sticky top-0 z-50 bg-white border-b border-divider">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            <Link to="/" className="flex items-center gap-2.5 flex-shrink-0">
-              <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center shadow-md">
-                <span className="text-white font-bold text-sm">S</span>
-              </div>
-              <span className="font-bold text-lg text-main-text tracking-tight hidden sm:inline">StaySpace</span>
-            </Link>
+            <Logo size="sm" linkTo="/" />
 
             <form onSubmit={handleSearch} className="hidden md:flex flex-1 max-w-md mx-8">
               <div className="relative w-full">

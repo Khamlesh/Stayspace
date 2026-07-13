@@ -14,6 +14,7 @@ import {
   HiBars3,
   HiXMark
 } from 'react-icons/hi2';
+import Logo from '../Logo';
 
 const Sidebar = ({ activeMenu, setActiveMenu, isCollapsed, setIsCollapsed, isMobileOpen, setIsMobileOpen }) => {
   const menuItems = [
@@ -47,20 +48,11 @@ const Sidebar = ({ activeMenu, setActiveMenu, isCollapsed, setIsCollapsed, isMob
       >
         {/* Logo Section */}
         <div className="h-[80px] flex items-center justify-between px-4 border-b border-divider">
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <HiBuildingOffice2 className="w-10 h-10 text-primary" />
-              <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary rounded-full flex items-center justify-center">
-                <HiHome className="w-2.5 h-2.5 text-white" />
-              </div>
-            </div>
-            {!isCollapsed && (
-              <div>
-                <h1 className="text-xl font-bold text-main-text leading-tight">StaySpace</h1>
-                <p className="text-xs text-secondary-text">Find Your Perfect Stay</p>
-              </div>
-            )}
-          </div>
+          {!isCollapsed ? (
+            <Logo size="md" linkTo="/host" />
+          ) : (
+            <Logo size="sm" showText={false} linkTo="/host" />
+          )}
           
           {/* Mobile Close Button */}
           <button 
