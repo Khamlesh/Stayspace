@@ -323,10 +323,23 @@ def create_app() -> Flask:
                 conn.close()
                 if existing:
                     return jsonify({"status": "error", "message": "This phone number is already registered"}), 400
-            except Exception:
-                pass
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                print("REGISTER EXCEPTION:", str(e))
 
-        result = _invoke_core("auth", "register", body)
+        print("========== REGISTER REQUEST ==========")
+        print("REGISTER BODY:", body)
+        try:
+            result = _invoke_core("auth", "register", body)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print("REGISTER ERROR:", str(e))
+            return jsonify({
+                "status": "error",
+                "message": str(e)
+            }), 500
 
         if body.get('role') == 'Host' and isinstance(result, tuple):
             resp_json, status_code = result
@@ -354,8 +367,10 @@ def create_app() -> Flask:
                             conn.commit()
                     cursor.close()
                     conn.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    print("REGISTER EXCEPTION:", str(e))
 
         return result
 
