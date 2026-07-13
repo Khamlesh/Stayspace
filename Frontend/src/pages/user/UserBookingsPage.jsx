@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { bookingsAPI } from '../../api/client'
 import { formatRupees } from '../../utils/currency'
+import { generateBookingReceipt } from '../../utils/receiptGenerator'
 import {
   HiOutlineCalendarDays,
   HiOutlineClock,
@@ -255,6 +256,21 @@ function BookingCard({ booking: b, onCancel, cancellingId, onSelect }) {
                 {cancellingId === b.id ? 'Cancelling...' : 'Cancel Booking'}
               </button>
             )}
+            {(b.status === 'Completed' || b.status === 'Confirmed') && (
+              <button
+                onClick={() => generateBookingReceipt({
+                  bookingId: b.id, transactionId: b.transaction_id, amount: b.total_price,
+                  nights: b.nights, paymentMethod: b.payment_method, propertyTitle: b.property_title,
+                  propertyAddress: b.property_address, checkInDate: b.check_in, checkOutDate: b.check_out,
+                  guests: b.guests_count, status: b.status, guest_name: b.guest_name, host_name: b.host_name,
+                  bookingDate: b.created_at
+                })}
+                className="text-xs font-semibold text-primary hover:text-primary-hover bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1"
+              >
+                <HiOutlineDocumentDuplicate className="w-3.5 h-3.5" />
+                Download Receipt
+              </button>
+            )}
             {canReview && (
               <button
                 onClick={() => navigate(`/properties/${b.property_id}/review`)}
@@ -343,6 +359,21 @@ function BookingDetailModal({ booking: b, onClose, onCancel, cancellingId, onLea
           </div>
 
           <div className="flex gap-2 mt-6 pt-4 border-t border-divider">
+            {(b.status === 'Completed' || b.status === 'Confirmed') && (
+              <button
+                onClick={() => generateBookingReceipt({
+                  bookingId: b.id, transactionId: b.transaction_id, amount: b.total_price,
+                  nights, paymentMethod: b.payment_method, propertyTitle: b.property_title,
+                  propertyAddress: b.property_address, checkInDate: b.check_in, checkOutDate: b.check_out,
+                  guests: b.guests_count, status: b.status, guest_name: b.guest_name, host_name: b.host_name,
+                  bookingDate: b.created_at
+                })}
+                className="flex-1 px-4 py-2.5 text-sm font-semibold text-primary bg-primary/10 hover:bg-primary/20 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5"
+              >
+                <HiOutlineDocumentDuplicate className="w-4 h-4" />
+                Download Receipt
+              </button>
+            )}
             {canCancel && (
               <>
                 <button

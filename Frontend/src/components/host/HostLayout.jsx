@@ -8,7 +8,7 @@ import {
   HiOutlineCalendarDays, HiOutlineCurrencyRupee, HiOutlineChartBar,
   HiOutlineStar, HiOutlineBell, HiOutlineUserCircle, HiOutlineCog6Tooth,
   HiOutlineArrowLeftOnRectangle, HiOutlineBars3, HiOutlineXMark,
-  HiOutlineChevronLeft
+  HiOutlineChevronLeft, HiOutlineExclamationTriangle
 } from 'react-icons/hi2'
 
 const menuItems = [
@@ -20,6 +20,7 @@ const menuItems = [
   { key: 'reports', label: 'Reports', icon: HiOutlineChartBar, path: '/host/reports' },
   { key: 'reviews', label: 'Reviews', icon: HiOutlineStar, path: '/host/reviews' },
   { key: 'notifications', label: 'Notifications', icon: HiOutlineBell, path: '/host/notifications' },
+  { key: 'complaints', label: 'Complaints', icon: HiOutlineExclamationTriangle, path: '/host/complaints' },
   { key: 'profile', label: 'Profile', icon: HiOutlineUserCircle, path: '/host/profile' },
   { key: 'settings', label: 'Settings', icon: HiOutlineCog6Tooth, path: '/host/settings' },
 ]

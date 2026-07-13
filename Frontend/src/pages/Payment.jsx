@@ -29,10 +29,12 @@ const Payment = () => {
   const [cardNumber, setCardNumber] = useState('')
   const [expiryDate, setExpiryDate] = useState('')
   const [cvv, setCvv] = useState('')
+  const [upiMobile, setUpiMobile] = useState('')
   const [upiId, setUpiId] = useState('')
   const [bankAccount, setBankAccount] = useState('')
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({})
 
   if (!propertyId || !checkInDate || !checkOutDate) {
     return (
@@ -57,6 +59,21 @@ const Payment = () => {
     e.preventDefault()
     setProcessing(true)
     setError('')
+    setFieldErrors({})
+
+    const errors = {}
+    if (paymentMethod === 'upi') {
+      if (!upiMobile.trim()) {
+        errors.upiMobile = 'UPI mobile number is required'
+      } else if (!/^\d{10}$/.test(upiMobile)) {
+        errors.upiMobile = 'Enter a valid 10-digit mobile number'
+      }
+    }
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors)
+      setProcessing(false)
+      return
+    }
 
     try {
       const res = await bookingsAPI.create({
@@ -65,7 +82,8 @@ const Payment = () => {
         check_out: checkOutDate,
         guests: parseInt(guests),
         special_requests: specialRequests || '',
-        payment_method: methodLabel
+        payment_method: methodLabel,
+        upi_mobile: paymentMethod === 'upi' ? upiMobile : undefined
       })
 
       if (res.data.status === 'success') {
@@ -116,7 +134,7 @@ const Payment = () => {
               { id: 'net-banking', label: 'Net Banking', icon: '🏦' }
             ].map(method => (
               <label key={method.id} className="flex items-center p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-primary transition-all"
-                style={{borderColor: paymentMethod === method.id ? '#FF385C' : '#E5E7EB'}}>
+                style={{borderColor: paymentMethod === method.id ? '#F43F5E' : '#E5E7EB'}}>
                 <input
                   type="radio"
                   name="payment-method"
@@ -178,15 +196,24 @@ const Payment = () => {
 
             {paymentMethod === 'upi' && (
               <div>
-                <label className="block text-gray-700 font-semibold mb-2">UPI ID</label>
+                <label className="block text-gray-700 font-semibold mb-2">UPI Mobile Number</label>
                 <input
                   type="text"
-                  value={upiId}
-                  onChange={(e) => setUpiId(e.target.value)}
-                  placeholder="yourname@upi"
-                  className="input-field"
+                  value={upiMobile}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '').slice(0, 10)
+                    setUpiMobile(val)
+                    if (fieldErrors.upiMobile) setFieldErrors(prev => ({ ...prev, upiMobile: '' }))
+                  }}
+                  placeholder="10-digit mobile number"
+                  maxLength="10"
+                  className={`input-field ${fieldErrors.upiMobile ? 'border-red-500 ring-2 ring-red-200' : ''}`}
                   required
                 />
+                {fieldErrors.upiMobile && (
+                  <p className="mt-1.5 text-xs text-red-600 font-medium">{fieldErrors.upiMobile}</p>
+                )}
+                <p className="mt-1 text-xs text-gray-500">Enter the 10-digit mobile number linked to your UPI</p>
               </div>
             )}
 

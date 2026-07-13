@@ -52,9 +52,16 @@ const UserExplorePage = () => {
     property_type: '',
   })
   const [showFilters, setShowFilters] = useState(false)
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [loadingMore, setLoadingMore] = useState(false)
 
-  const fetchProperties = useCallback(async () => {
-    setLoading(true)
+  const fetchProperties = useCallback(async (pageNum = 1, append = false) => {
+    if (append) {
+      setLoadingMore(true)
+    } else {
+      setLoading(true)
+    }
     setError(null)
     try {
       const response = await propertiesAPI.list(
@@ -63,19 +70,24 @@ const UserExplorePage = () => {
         filters.maxPrice,
         filters.guests,
         filters.property_type === 'All' ? '' : filters.property_type,
+        pageNum,
       )
-      const data = response.data.status === 'success' ? (response.data.data || []) : []
-      setProperties(data)
+      const resData = response.data
+      const data = resData.status === 'success' ? (resData.data || []) : []
+      setProperties((prev) => (append ? [...prev, ...data] : data))
+      setTotalPages(resData.total_pages || 1)
+      setPage(resData.page || pageNum)
     } catch (err) {
       console.error('Error fetching properties:', err)
       setError('Failed to load properties. Please try again.')
     } finally {
       setLoading(false)
+      setLoadingMore(false)
     }
   }, [filters])
 
   useEffect(() => {
-    fetchProperties()
+    fetchProperties(1, false)
   }, [fetchProperties])
 
   useEffect(() => {
@@ -315,6 +327,7 @@ const UserExplorePage = () => {
                   <img
                     src={property.image_url}
                     alt={property.title}
+                    loading="lazy"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     onError={(e) => {
                       e.target.style.display = 'none'
@@ -390,6 +403,18 @@ const UserExplorePage = () => {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {!loading && properties.length > 0 && page < totalPages && (
+        <div className="mt-8 text-center">
+          <button
+            onClick={() => fetchProperties(page + 1, true)}
+            disabled={loadingMore}
+            className="px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+          >
+            {loadingMore ? 'Loading...' : 'Load More'}
+          </button>
         </div>
       )}
     </div>

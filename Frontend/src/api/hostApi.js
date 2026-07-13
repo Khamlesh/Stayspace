@@ -57,6 +57,12 @@ const hostAPI = {
 
   getReports: () =>
     apiClient.post('/host/reports'),
+
+  getComplaints: () =>
+    apiClient.post('/host/complaints'),
+
+  createComplaint: (data) =>
+    apiClient.post('/host/complaint/create', data),
 }
 
 export default hostAPI

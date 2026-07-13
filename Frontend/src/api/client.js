@@ -43,8 +43,8 @@ export const authAPI = {
 export const propertiesAPI = {
   create: (data) =>
     apiClient.post('/properties', data),
-  list: (query = '', minPrice = 0, maxPrice = 0, guests = 0, propertyType = '') =>
-    apiClient.get('/properties', { params: { query, min_price: minPrice, max_price: maxPrice, guests, property_type: propertyType } }),
+  list: (query = '', minPrice = 0, maxPrice = 0, guests = 0, propertyType = '', page = 1) =>
+    apiClient.get('/properties', { params: { query, min_price: minPrice, max_price: maxPrice, guests, property_type: propertyType, page } }),
   getDetails: (propertyId) =>
     apiClient.get(`/properties/${propertyId}`),
   getAvailability: (propertyId) =>

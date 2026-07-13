@@ -22,6 +22,7 @@ import HostReviewsPage from './pages/host/HostReviewsPage'
 import HostNotificationsPage from './pages/host/HostNotificationsPage'
 import HostProfilePage from './pages/host/HostProfilePage'
 import HostSettingsPage from './pages/host/HostSettingsPage'
+import HostComplaintsPage from './pages/host/HostComplaintsPage'
 import UserLayout from './components/user/UserLayout'
 import UserDashboardPage from './pages/user/UserDashboardPage'
 import UserExplorePage from './pages/user/UserExplorePage'
@@ -32,6 +33,7 @@ import UserReviewsPage from './pages/user/UserReviewsPage'
 import UserNotificationsPage from './pages/user/UserNotificationsPage'
 import UserProfilePage from './pages/user/UserProfilePage'
 import UserSettingsPage from './pages/user/UserSettingsPage'
+import UserComplaintsPage from './pages/user/UserComplaintsPage'
 import AdminLayout from './components/admin/AdminLayout'
 import AdminDashboardPage from './pages/admin/AdminDashboardPage'
 import AdminUsersPage from './pages/admin/AdminUsersPage'
@@ -75,6 +77,7 @@ function App() {
               <Route path="payments" element={<UserPaymentsPage />} />
               <Route path="reviews" element={<UserReviewsPage />} />
               <Route path="notifications" element={<UserNotificationsPage />} />
+              <Route path="complaints" element={<UserComplaintsPage />} />
               <Route path="profile" element={<UserProfilePage />} />
               <Route path="settings" element={<UserSettingsPage />} />
             </Route>
@@ -90,6 +93,7 @@ function App() {
               <Route path="reports" element={<HostReportsPage />} />
               <Route path="reviews" element={<HostReviewsPage />} />
               <Route path="notifications" element={<HostNotificationsPage />} />
+              <Route path="complaints" element={<HostComplaintsPage />} />
               <Route path="profile" element={<HostProfilePage />} />
               <Route path="settings" element={<HostSettingsPage />} />
             </Route>

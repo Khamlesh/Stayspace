@@ -1,6 +1,7 @@
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { formatRupees } from '../utils/currency'
+import { generateBookingReceipt } from '../utils/receiptGenerator'
 
 const PaymentSuccess = () => {
   const location = useLocation()
@@ -116,6 +117,16 @@ const PaymentSuccess = () => {
         </div>
 
         <div className="flex gap-4">
+          <button
+            onClick={() => generateBookingReceipt({
+              bookingId, transactionId, amount, nights, serviceFee,
+              paymentMethod, propertyTitle, checkInDate, checkOutDate, guests,
+              status: 'Confirmed', bookingDate: new Date().toLocaleDateString('en-IN')
+            })}
+            className="btn-outline flex-1"
+          >
+            Download Receipt
+          </button>
           <button
             onClick={() => navigate('/user')}
             className="btn-primary flex-1"

@@ -477,11 +477,46 @@ def create_app() -> Flask:
         max_price = float(request.args.get('max_price', 0))
         guests = int(request.args.get('guests', 0))
         property_type = request.args.get('property_type', '')
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 24))
 
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
-            sql = """
+
+            where_clauses = ["1=1"]
+            params = []
+            if query_param:
+                where_clauses.append("(p.title LIKE %s OR p.address LIKE %s OR p.description LIKE %s OR p.nearby_location LIKE %s OR p.property_type LIKE %s)")
+                like_q = f"%{query_param}%"
+                params.extend([like_q, like_q, like_q, like_q, like_q])
+            if min_price > 0:
+                where_clauses.append("p.price_per_night >= %s")
+                params.append(min_price)
+            if max_price > 0 and max_price < 10000:
+                where_clauses.append("p.price_per_night <= %s")
+                params.append(max_price)
+            if guests > 0:
+                where_clauses.append("p.max_guests >= %s")
+                params.append(guests)
+            if property_type and property_type in ('Apartment', 'House', 'Villa'):
+                where_clauses.append("p.property_type = %s")
+                params.append(property_type)
+
+            where_sql = " AND ".join(where_clauses)
+
+            count_sql = f"""
+                SELECT COUNT(DISTINCT p.id) AS total
+                FROM Properties p
+                LEFT JOIN Reviews r ON r.property_id = p.id
+                WHERE {where_sql}
+            """
+            cursor.execute(count_sql, params)
+            total = cursor.fetchone()['total']
+            total_pages = max(1, (total + per_page - 1) // per_page)
+
+            offset = (page - 1) * per_page
+            sql = f"""
                 SELECT p.id, p.title, p.description, p.image_url, p.property_type,
                        p.address, p.price_per_night, p.max_guests, p.created_at,
                        p.bedrooms, p.bathrooms, p.beds, p.property_size, p.nearby_location,
@@ -489,27 +524,11 @@ def create_app() -> Flask:
                        COUNT(DISTINCT r.id) AS review_count
                 FROM Properties p
                 LEFT JOIN Reviews r ON r.property_id = p.id
-                WHERE 1=1
+                WHERE {where_sql}
+                GROUP BY p.id ORDER BY p.id DESC
+                LIMIT %s OFFSET %s
             """
-            params = []
-            if query_param:
-                sql += " AND (p.title LIKE %s OR p.address LIKE %s OR p.description LIKE %s OR p.nearby_location LIKE %s OR p.property_type LIKE %s)"
-                like_q = f"%{query_param}%"
-                params.extend([like_q, like_q, like_q, like_q, like_q])
-            if min_price > 0:
-                sql += " AND p.price_per_night >= %s"
-                params.append(min_price)
-            if max_price > 0 and max_price < 10000:
-                sql += " AND p.price_per_night <= %s"
-                params.append(max_price)
-            if guests > 0:
-                sql += " AND p.max_guests >= %s"
-                params.append(guests)
-            if property_type and property_type in ('Apartment', 'House', 'Villa'):
-                sql += " AND p.property_type = %s"
-                params.append(property_type)
-            sql += " GROUP BY p.id ORDER BY p.id DESC"
-            cursor.execute(sql, params)
+            cursor.execute(sql, params + [per_page, offset])
             properties = cursor.fetchall()
             for prop in properties:
                 prop['price_per_night'] = float(prop['price_per_night'])
@@ -518,7 +537,7 @@ def create_app() -> Flask:
                 prop['created_at'] = str(prop['created_at'])
             cursor.close()
             conn.close()
-            return jsonify({"status": "success", "message": "Search completed.", "data": properties}), 200
+            return jsonify({"status": "success", "message": "Search completed.", "data": properties, "total": total, "page": page, "per_page": per_page, "total_pages": total_pages}), 200
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -2126,6 +2145,70 @@ def create_app() -> Flask:
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
 
+    @app.post("/api/host/complaints")
+    def host_complaints():
+        body = request.get_json(silent=True) or {}
+        host, error = _host_guard(body)
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT c.*, u.name AS user_name, u.email AS user_email
+                FROM Complaints c
+                JOIN Users u ON c.user_id = u.id
+                WHERE c.user_id = %s
+                ORDER BY c.created_at DESC
+            """, (host['id'],))
+            complaints = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            for c in complaints:
+                if c.get('created_at'):
+                    c['created_at'] = str(c['created_at'])
+                if c.get('updated_at'):
+                    c['updated_at'] = str(c['updated_at'])
+            return jsonify({"status": "success", "data": complaints}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/host/complaint/create")
+    def host_complaint_create():
+        body = request.get_json(silent=True) or {}
+        host, error = _host_guard(body)
+        if error:
+            return error
+        try:
+            category = body.get('category', 'Other')
+            subject = body.get('subject', '').strip()
+            description = body.get('description', '').strip()
+            if not subject:
+                return jsonify({"status": "error", "message": "Subject is required"}), 400
+            if not description:
+                return jsonify({"status": "error", "message": "Description is required"}), 400
+            full_subject = f"[{category}] {subject}"
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO Complaints (user_id, subject, description) VALUES (%s, %s, %s)",
+                (host['id'], full_subject, description)
+            )
+            complaint_id = cursor.lastrowid
+            try:
+                cursor.execute("SELECT user_id FROM Admins LIMIT 1")
+                admin_row = cursor.fetchone()
+                if admin_row:
+                    _create_notification(cursor, admin_row[0], f"New host complaint: {full_subject}")
+            except Exception:
+                pass
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": {"complaint_id": complaint_id}, "message": "Complaint submitted successfully"}), 201
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
     # ──────────────────────────────────────────────
     # ADMIN – Enhanced Stats
     # ──────────────────────────────────────────────
@@ -3447,7 +3530,15 @@ def create_app() -> Flask:
             cursor = conn.cursor()
             cursor.execute("INSERT INTO Complaints (user_id, subject, description) VALUES (%s, %s, %s)",
                            (guest['id'], subject, description))
-            conn.commit()
+            complaint_id = cursor.lastrowid
+            try:
+                cursor.execute("SELECT user_id FROM Admins LIMIT 1")
+                admin_row = cursor.fetchone()
+                if admin_row:
+                    _create_notification(cursor, admin_row[0], f"New complaint submitted: {subject}")
+                conn.commit()
+            except Exception:
+                pass
             cursor.close()
             conn.close()
             return jsonify({"status": "success", "message": "Complaint submitted"}), 201
