@@ -3,7 +3,7 @@ import { formatRupees } from '../utils/currency'
 import { useState } from 'react'
 
 const PropertyCard = ({ property }) => {
-  const { id, title, address, price_per_night, max_guests, average_rating, review_count, image_url, property_type } = property
+  const { id, title, address, price_per_night, max_guests, average_rating, review_count, image_url, property_type, bedrooms, bathrooms, beds } = property
   const [imgError, setImgError] = useState(false)
 
   return (
@@ -50,6 +50,9 @@ const PropertyCard = ({ property }) => {
           </div>
 
           <div className="mt-3 pt-3 border-t border-divider flex items-center justify-between">
+            <p className="text-xs text-secondary-text">
+              {bedrooms || 1} bed · {bathrooms || 1} bath · {beds || 1} beds
+            </p>
             <p className="text-xs text-secondary-text">
               Up to {max_guests} {max_guests === 1 ? 'guest' : 'guests'}
             </p>

@@ -372,6 +372,9 @@ const UserExplorePage = () => {
                 </div>
 
                 <div className="mt-3 pt-3 border-t border-divider flex items-center justify-between">
+                  <p className="text-xs text-secondary-text">
+                    {property.bedrooms || 1} bed · {property.bathrooms || 1} bath · {property.beds || 1} beds
+                  </p>
                   <button
                     onClick={(e) => toggleWishlist(e, property.id)}
                     className="p-1.5 rounded-full hover:bg-red-50 transition-colors"
@@ -382,15 +385,6 @@ const UserExplorePage = () => {
                     ) : (
                       <HiOutlineHeart className="w-5 h-5 text-gray-400 hover:text-red-400" />
                     )}
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      navigate(`/property/${property.id}`)
-                    }}
-                    className="px-4 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors"
-                  >
-                    View Details
                   </button>
                 </div>
               </div>

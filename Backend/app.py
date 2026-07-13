@@ -484,6 +484,7 @@ def create_app() -> Flask:
             sql = """
                 SELECT p.id, p.title, p.description, p.image_url, p.property_type,
                        p.address, p.price_per_night, p.max_guests, p.created_at,
+                       p.bedrooms, p.bathrooms, p.beds, p.property_size, p.nearby_location,
                        COALESCE(AVG(r.rating), 0) AS average_rating,
                        COUNT(DISTINCT r.id) AS review_count
                 FROM Properties p
@@ -492,9 +493,9 @@ def create_app() -> Flask:
             """
             params = []
             if query_param:
-                sql += " AND (p.title LIKE %s OR p.address LIKE %s OR p.description LIKE %s)"
+                sql += " AND (p.title LIKE %s OR p.address LIKE %s OR p.description LIKE %s OR p.nearby_location LIKE %s OR p.property_type LIKE %s)"
                 like_q = f"%{query_param}%"
-                params.extend([like_q, like_q, like_q])
+                params.extend([like_q, like_q, like_q, like_q, like_q])
             if min_price > 0:
                 sql += " AND p.price_per_night >= %s"
                 params.append(min_price)
@@ -530,6 +531,7 @@ def create_app() -> Flask:
                 """
                 SELECT p.id, p.title, p.description, p.image_url, p.property_type,
                        p.address, p.price_per_night, p.max_guests, p.created_at,
+                       p.bedrooms, p.bathrooms, p.beds, p.property_size, p.nearby_location,
                        COALESCE(AVG(r.rating), 0) AS average_rating,
                        COUNT(DISTINCT r.id) AS review_count
                 FROM Properties p
@@ -568,18 +570,41 @@ def create_app() -> Flask:
                 rev['created_at'] = str(rev['created_at'])
             prop['reviews'] = reviews
 
-            cursor.execute(
-                """
-                SELECT u.name, u.email, h.bio
-                FROM Hosts h
-                JOIN Users u ON u.id = h.user_id
-                JOIN Properties p ON p.host_id = h.id
-                WHERE p.id = %s
-                """,
-                (property_id,)
-            )
-            host = cursor.fetchone()
-            prop['host'] = host
+            token = request.headers.get('X-Auth-Token', '')
+            user_has_booked = False
+            if token:
+                try:
+                    cursor.execute(
+                        """
+                        SELECT 1 FROM Bookings b
+                        JOIN Guests g ON g.id = b.guest_id
+                        JOIN Sessions s ON s.user_id = g.user_id
+                        WHERE b.property_id = %s
+                          AND b.status IN ('Confirmed', 'Checked-In', 'Completed')
+                          AND s.session_token = %s
+                          AND s.expires_at > NOW()
+                        LIMIT 1
+                        """,
+                        (property_id, token)
+                    )
+                    user_has_booked = cursor.fetchone() is not None
+                except Exception:
+                    pass
+
+            if user_has_booked:
+                cursor.execute(
+                    """
+                    SELECT u.name, u.email, h.bio, h.phone, h.city
+                    FROM Hosts h
+                    JOIN Users u ON u.id = h.user_id
+                    JOIN Properties p ON p.host_id = h.id
+                    WHERE p.id = %s
+                    """,
+                    (property_id,)
+                )
+                prop['host'] = cursor.fetchone()
+            else:
+                prop['host'] = None
 
             cursor.close()
             conn.close()

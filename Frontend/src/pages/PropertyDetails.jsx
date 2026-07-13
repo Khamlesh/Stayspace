@@ -189,6 +189,25 @@ const PropertyDetails = () => {
             <div className="text-secondary-text text-sm">• {property.max_guests} guests max</div>
           </div>
 
+          <div className="grid grid-cols-4 gap-4 mb-8 pb-8 border-b border-divider">
+            <div className="text-center p-3 bg-background rounded-xl">
+              <p className="text-lg font-bold text-main-text">{property.bedrooms || 1}</p>
+              <p className="text-xs text-secondary-text">Bedrooms</p>
+            </div>
+            <div className="text-center p-3 bg-background rounded-xl">
+              <p className="text-lg font-bold text-main-text">{property.bathrooms || 1}</p>
+              <p className="text-xs text-secondary-text">Bathrooms</p>
+            </div>
+            <div className="text-center p-3 bg-background rounded-xl">
+              <p className="text-lg font-bold text-main-text">{property.beds || 1}</p>
+              <p className="text-xs text-secondary-text">Beds</p>
+            </div>
+            <div className="text-center p-3 bg-background rounded-xl">
+              <p className="text-lg font-bold text-main-text">{property.property_size ? `${property.property_size} sq ft` : 'N/A'}</p>
+              <p className="text-xs text-secondary-text">Property Size</p>
+            </div>
+          </div>
+
           <div className="mb-8">
             <h2 className="text-xl font-bold mb-3 text-main-text">About this property</h2>
             <p className="text-secondary-text leading-relaxed">{property.description}</p>
@@ -208,20 +227,32 @@ const PropertyDetails = () => {
             </div>
           )}
 
-          {property.host && (
+          {property.host ? (
             <div className="mb-8 pb-8 border-b border-divider">
-              <h2 className="text-xl font-bold mb-3 text-main-text">Your Host</h2>
+              <h2 className="text-xl font-bold mb-3 text-main-text">Host Information</h2>
               <div className="bg-background rounded-xl p-5">
                 <div className="flex items-start gap-4">
                   <div className="w-14 h-14 bg-primary rounded-full flex items-center justify-center text-white text-lg font-bold flex-shrink-0">
                     {property.host.name?.charAt(0)}
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <h3 className="font-bold text-main-text">{property.host.name}</h3>
-                    <p className="text-sm text-secondary-text mb-1">{property.host.email}</p>
-                    {property.host.bio && <p className="text-sm text-secondary-text">{property.host.bio}</p>}
+                    {property.host.bio && <p className="text-sm text-secondary-text mt-1">{property.host.bio}</p>}
+                    <div className="mt-3 p-3 bg-primary/5 rounded-lg border border-primary/10">
+                      <p className="text-xs font-medium text-primary mb-2">Contact Information</p>
+                      <p className="text-sm text-main-text">📧 {property.host.email}</p>
+                      {property.host.phone && <p className="text-sm text-main-text">📱 {property.host.phone}</p>}
+                      {property.host.city && <p className="text-sm text-main-text">📍 {property.host.city}</p>}
+                    </div>
                   </div>
                 </div>
+              </div>
+            </div>
+          ) : (
+            <div className="mb-8 pb-8 border-b border-divider">
+              <h2 className="text-xl font-bold mb-3 text-main-text">Host</h2>
+              <div className="bg-background rounded-xl p-5 text-center">
+                <p className="text-secondary-text text-sm">Book this property to view host contact information</p>
               </div>
             </div>
           )}

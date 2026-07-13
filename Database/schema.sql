@@ -183,6 +183,11 @@ CREATE TABLE IF NOT EXISTS Complaints (
 -- Ensure Properties table has image_url and property_type columns
 ALTER TABLE Properties ADD COLUMN IF NOT EXISTS image_url VARCHAR(500) NULL AFTER description;
 ALTER TABLE Properties ADD COLUMN IF NOT EXISTS property_type ENUM('Apartment', 'House', 'Villa') DEFAULT 'House' AFTER image_url;
+ALTER TABLE Properties ADD COLUMN IF NOT EXISTS bedrooms INT DEFAULT 1 AFTER max_guests;
+ALTER TABLE Properties ADD COLUMN IF NOT EXISTS bathrooms INT DEFAULT 1 AFTER bedrooms;
+ALTER TABLE Properties ADD COLUMN IF NOT EXISTS beds INT DEFAULT 1 AFTER bathrooms;
+ALTER TABLE Properties ADD COLUMN IF NOT EXISTS property_size INT DEFAULT 0 AFTER beds;
+ALTER TABLE Properties ADD COLUMN IF NOT EXISTS nearby_location VARCHAR(200) DEFAULT '' AFTER property_size;
 
 -- Ensure Hosts table has gender, phone, city columns
 ALTER TABLE Hosts ADD COLUMN IF NOT EXISTS gender VARCHAR(20) DEFAULT '' AFTER is_approved;
