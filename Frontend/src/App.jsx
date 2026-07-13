@@ -54,9 +54,9 @@ function App() {
       <AuthProvider>
         <Routes>
           <Route path="/" element={<Layout><Landing /></Layout>} />
-          <Route path="/login" element={<Layout><Login /></Layout>} />
-          <Route path="/register" element={<Layout><Register /></Layout>} />
-          <Route path="/forgot-password" element={<Layout><ForgotPassword /></Layout>} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/search" element={<Layout><Search /></Layout>} />
           <Route path="/property/:id" element={<Layout><PropertyDetails /></Layout>} />
 

@@ -7,8 +7,8 @@ export default {
   theme: {
     extend: {
       colors: {
-        primary: "#FF385C",
-        "primary-hover": "#E61E4D",
+        primary: "#F43F5E",
+        "primary-hover": "#E11D48",
         background: "#F8FAFC",
         "sidebar-bg": "#FFFFFF",
         "card-bg": "#FFFFFF",
@@ -21,7 +21,7 @@ export default {
         danger: "#EF4444",
         info: "#3B82F6",
         rating: "#FBBF24",
-        "chart-pink": "#FF385C",
+        "chart-pink": "#F43F5E",
         "chart-blue": "#3B82F6",
         "chart-green": "#22C55E",
         "chart-orange": "#F59E0B"

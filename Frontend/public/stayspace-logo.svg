@@ -1,11 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 70" fill="none">
-  <g transform="translate(4, 8)">
-    <path d="M28 8 L28 22 L36 22 L36 38 L20 38 L20 22 L12 22 L12 8 Z" stroke="#FF385C" stroke-width="2.5" fill="none" stroke-linejoin="round"/>
-    <path d="M16 38 L16 48 L40 48 L40 38" stroke="#FF385C" stroke-width="2.5" fill="none" stroke-linejoin="round"/>
-    <path d="M24 48 L24 54 L32 54 L32 48" stroke="#FF385C" stroke-width="2" fill="none"/>
-    <circle cx="28" cy="18" r="4" fill="#FF385C"/>
-    <path d="M28 14 L28 10 M28 22 L28 26" stroke="#FF385C" stroke-width="1.5"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 70" fill="none">
+  <g transform="translate(8, 8)">
+    <rect x="0" y="0" width="24" height="24" rx="5" fill="#F43F5E"/>
+    <rect x="28" y="0" width="24" height="24" rx="5" fill="#F43F5E" opacity="0.65"/>
+    <rect x="0" y="28" width="24" height="24" rx="5" fill="#F43F5E" opacity="0.4"/>
+    <rect x="28" y="28" width="24" height="24" rx="5" fill="#F43F5E" opacity="0.2"/>
   </g>
-  <text x="58" y="32" font-family="Poppins, Inter, sans-serif" font-size="22" font-weight="700" fill="#111827">StaySpace</text>
-  <text x="58" y="52" font-family="Poppins, Inter, sans-serif" font-size="11" font-weight="400" fill="#6B7280">Find Your Perfect Stay</text>
+  <text x="88" y="30" font-family="Poppins, Inter, sans-serif" font-size="22" font-weight="700" fill="#111827">Stay</text>
+  <text x="139" y="30" font-family="Poppins, Inter, sans-serif" font-size="22" font-weight="700" fill="#F43F5E">Space</text>
+  <text x="88" y="52" font-family="Poppins, Inter, sans-serif" font-size="9" font-weight="500" fill="#6B7280" letter-spacing="2">FIND YOUR PERFECT STAY</text>
 </svg>
