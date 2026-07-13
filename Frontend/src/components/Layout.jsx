@@ -59,12 +59,12 @@ export default function Layout({ children }) {
                     </Link>
                   )}
                   {user?.role === 'Admin' && (
-                    <Link to="/admin-dashboard" className="px-4 py-2 text-sm font-medium text-secondary-text hover:text-primary transition-colors">
+                    <Link to="/admin" className="px-4 py-2 text-sm font-medium text-secondary-text hover:text-primary transition-colors">
                       Admin Dashboard
                     </Link>
                   )}
                   {user?.role === 'Guest' && (
-                    <Link to="/dashboard" className="px-4 py-2 text-sm font-medium text-secondary-text hover:text-primary transition-colors">
+                    <Link to="/user" className="px-4 py-2 text-sm font-medium text-secondary-text hover:text-primary transition-colors">
                       Dashboard
                     </Link>
                   )}
@@ -118,12 +118,12 @@ export default function Layout({ children }) {
                   </Link>
                 )}
                 {user?.role === 'Admin' && (
-                  <Link to="/admin-dashboard" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-sm font-medium text-secondary-text hover:text-primary">
+                  <Link to="/admin" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-sm font-medium text-secondary-text hover:text-primary">
                     Admin Dashboard
                   </Link>
                 )}
                 {user?.role === 'Guest' && (
-                  <Link to="/dashboard" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-sm font-medium text-secondary-text hover:text-primary">
+                  <Link to="/user" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-sm font-medium text-secondary-text hover:text-primary">
                     Dashboard
                   </Link>
                 )}

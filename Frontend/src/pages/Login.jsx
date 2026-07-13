@@ -22,9 +22,14 @@ const Login = () => {
     const result = await login(email, password)
     if (result.success) {
       const role = result.user?.role
-      if (role === 'Host') navigate('/host')
-      else if (role === 'Admin') navigate('/admin-dashboard')
-      else navigate('/dashboard')
+      if (role === 'Host') {
+        if (result.user?.is_approved === false) {
+          navigate('/host')
+        } else {
+          navigate('/host')
+        }
+      } else if (role === 'Admin') navigate('/admin')
+      else navigate('/user')
     }
   }
 

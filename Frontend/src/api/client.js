@@ -22,8 +22,8 @@ apiClient.interceptors.request.use(config => {
 })
 
 export const authAPI = {
-  register: (name, email, password, role) =>
-    apiClient.post('/auth/register', { name, email, password, role }),
+  register: (name, email, password, role, hostFields = {}) =>
+    apiClient.post('/auth/register', { name, email, password, role, ...hostFields }),
   login: (email, password) =>
     apiClient.post('/auth/login', { email, password }),
   logout: () =>
@@ -32,6 +32,8 @@ export const authAPI = {
     apiClient.post('/auth/validate', data),
   checkEmail: (email) =>
     apiClient.post('/auth/check_email', { email }),
+  checkPhone: (phone) =>
+    apiClient.post('/auth/check_phone', { phone }),
   changePassword: (email, oldPassword, newPassword) =>
     apiClient.post('/auth/change_password', { email, old_password: oldPassword, new_password: newPassword }),
   forgotPassword: ({ email, new_password }) =>

@@ -1,9 +1,11 @@
 import { useLocation, useNavigate } from 'react-router-dom'
+import { useAuth } from '../hooks/useAuth'
 import { formatRupees } from '../utils/currency'
 
 const PaymentSuccess = () => {
   const location = useLocation()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const {
     bookingId,
     transactionId,
@@ -21,7 +23,7 @@ const PaymentSuccess = () => {
     return (
       <div className="max-w-2xl mx-auto px-4 py-24 text-center">
         <p className="text-secondary-text text-lg mb-6">No booking data found.</p>
-        <button onClick={() => navigate('/dashboard')} className="btn-primary">Go to Dashboard</button>
+        <button onClick={() => navigate('/user')} className="btn-primary">Go to Dashboard</button>
       </div>
     )
   }
@@ -115,7 +117,7 @@ const PaymentSuccess = () => {
 
         <div className="flex gap-4">
           <button
-            onClick={() => navigate('/dashboard')}
+            onClick={() => navigate('/user')}
             className="btn-primary flex-1"
           >
             View My Bookings

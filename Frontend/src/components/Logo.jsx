@@ -14,8 +14,8 @@ export default function Logo({ size = 'md', showText = true, linkTo }) {
     if (linkTo) return linkTo
     if (!user) return '/'
     if (user.role === 'Host') return '/host'
-    if (user.role === 'Admin') return '/admin-dashboard'
-    return '/dashboard'
+    if (user.role === 'Admin') return '/admin'
+    return '/user'
   }
 
   const s = sizeMap[size] || sizeMap.md

@@ -31,6 +31,9 @@ CREATE TABLE IF NOT EXISTS Hosts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL UNIQUE,
     is_approved BOOLEAN DEFAULT FALSE,
+    gender VARCHAR(20) DEFAULT '',
+    phone VARCHAR(20) DEFAULT '',
+    city VARCHAR(100) DEFAULT '',
     bio TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
@@ -162,3 +165,26 @@ CREATE TABLE IF NOT EXISTS Sessions (
     FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE,
     INDEX idx_token (session_token)
 ) ENGINE=InnoDB;
+
+-- 15. Complaints Table
+CREATE TABLE IF NOT EXISTS Complaints (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    subject VARCHAR(200) NOT NULL,
+    description TEXT NOT NULL,
+    status ENUM('Open', 'In Progress', 'Resolved', 'Closed') DEFAULT 'Open',
+    admin_response TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE,
+    INDEX idx_status (status)
+) ENGINE=InnoDB;
+
+-- Ensure Properties table has image_url and property_type columns
+ALTER TABLE Properties ADD COLUMN IF NOT EXISTS image_url VARCHAR(500) NULL AFTER description;
+ALTER TABLE Properties ADD COLUMN IF NOT EXISTS property_type ENUM('Apartment', 'House', 'Villa') DEFAULT 'House' AFTER image_url;
+
+-- Ensure Hosts table has gender, phone, city columns
+ALTER TABLE Hosts ADD COLUMN IF NOT EXISTS gender VARCHAR(20) DEFAULT '' AFTER is_approved;
+ALTER TABLE Hosts ADD COLUMN IF NOT EXISTS phone VARCHAR(20) DEFAULT '' AFTER gender;
+ALTER TABLE Hosts ADD COLUMN IF NOT EXISTS city VARCHAR(100) DEFAULT '' AFTER phone;

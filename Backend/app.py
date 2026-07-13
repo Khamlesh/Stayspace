@@ -70,6 +70,21 @@ def seed_demo_users():
         except Exception as e:
             print(f"Seed warning for {user['email']}: {e}")
     
+    # Approve demo host after seeding
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE Hosts h JOIN Users u ON h.user_id = u.id
+            SET h.is_approved = TRUE, h.gender = 'Female', h.phone = '9876543210', h.city = 'Mumbai'
+            WHERE u.email = 'host@stayspace.com' AND u.role = 'Host'
+        """)
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception:
+        pass
+    
     return True
 
 
@@ -144,7 +159,10 @@ def _require_host(token: str):
     cursor.execute(
         """
         SELECT u.id, u.name, u.email, u.role, u.profile_picture,
-               h.id AS host_id, h.is_approved, COALESCE(h.bio, '') AS bio
+               h.id AS host_id, h.is_approved, COALESCE(h.bio, '') AS bio,
+               COALESCE(h.gender, '') AS gender,
+               COALESCE(h.phone, '') AS phone,
+               COALESCE(h.city, '') AS city
         FROM Sessions s
         JOIN Users u ON s.user_id = u.id
         JOIN Hosts h ON h.user_id = u.id
@@ -169,6 +187,9 @@ def _host_guard(body):
 
     if not host:
         return None, (jsonify({"status": "error", "message": "Only authenticated hosts can access this data"}), 403)
+
+    if not host.get("is_approved"):
+        return None, (jsonify({"status": "error", "message": "Your host account is pending admin approval", "pending_approval": True}), 403)
 
     return host, None
 
@@ -216,7 +237,17 @@ def create_app() -> Flask:
          supports_credentials=True)
     app.config["JSON_SORT_KEYS"] = False
     
-    # Seed demo users on startup
+    # Initialize DB schema, then seed demo users on startup
+    if CORE_EXE.exists():
+        try:
+            subprocess.run(
+                [str(CORE_EXE), "db_init", "init", json.dumps({})],
+                cwd=str(ROOT_DIR),
+                capture_output=True, text=True, encoding="utf-8",
+                check=False, timeout=30
+            )
+        except Exception:
+            pass
     seed_demo_users()
 
     @app.get("/")
@@ -262,7 +293,81 @@ def create_app() -> Flask:
     @app.post("/api/auth/register")
     def register():
         body = request.get_json(silent=True) or {}
-        return _invoke_core("auth", "register", body)
+
+        gender = body.pop('gender', '')
+        phone = body.pop('phone', '')
+        city = body.pop('city', '')
+
+        if body.get('role') == 'Host' and phone:
+            try:
+                conn = mysql.connector.connect(**DB_CONFIG)
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute(
+                    "SELECT h.id FROM Hosts h JOIN Users u ON h.user_id = u.id WHERE h.phone = %s",
+                    (phone,)
+                )
+                existing = cursor.fetchone()
+                cursor.close()
+                conn.close()
+                if existing:
+                    return jsonify({"status": "error", "message": "This phone number is already registered"}), 400
+            except Exception:
+                pass
+
+        result = _invoke_core("auth", "register", body)
+
+        if body.get('role') == 'Host' and isinstance(result, tuple):
+            resp_json, status_code = result
+            resp_data = resp_json.get_json() if hasattr(resp_json, 'get_json') else None
+            if resp_data and resp_data.get('status') == 'success':
+                try:
+                    conn = mysql.connector.connect(**DB_CONFIG)
+                    cursor = conn.cursor(dictionary=True)
+                    cursor.execute(
+                        "SELECT id FROM Users WHERE email = %s",
+                        (body.get('email', ''),)
+                    )
+                    user_row = cursor.fetchone()
+                    if user_row:
+                        cursor.execute(
+                            "SELECT id FROM Hosts WHERE user_id = %s",
+                            (user_row['id'],)
+                        )
+                        host_row = cursor.fetchone()
+                        if host_row:
+                            cursor.execute(
+                                "UPDATE Hosts SET gender = %s, phone = %s, city = %s WHERE id = %s",
+                                (gender, phone, city, host_row['id'])
+                            )
+                            conn.commit()
+                    cursor.close()
+                    conn.close()
+                except Exception:
+                    pass
+
+        return result
+
+    @app.post("/api/auth/check_phone")
+    def check_phone():
+        body = request.get_json(silent=True) or {}
+        phone = body.get('phone', '').strip()
+        if not phone:
+            return jsonify({"status": "error", "message": "Phone number is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT h.id FROM Hosts h WHERE h.phone = %s",
+                (phone,)
+            )
+            existing = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            if existing:
+                return jsonify({"status": "error", "message": "Phone number already registered"}), 409
+            return jsonify({"status": "success", "message": "Phone number available"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
 
     @app.post("/api/auth/login")
     def login():
@@ -876,8 +981,8 @@ def create_app() -> Flask:
         except Exception as e:
             return jsonify({"status": "error", "message": f"Error loading earnings chart: {str(e)}"}), 500
 
-    @app.post("/api/admin/stats")
-    def admin_stats():
+    @app.post("/api/admin/stats_v1")
+    def admin_stats_v1():
         body = request.get_json(silent=True) or {}
         _, error = _admin_guard(body)
         if error:
@@ -960,6 +1065,9 @@ def create_app() -> Flask:
                 """
                 SELECT u.id, h.id AS host_id, u.name, u.email, h.is_approved, h.created_at,
                        COALESCE(h.bio, '') AS bio,
+                       COALESCE(h.gender, '') AS gender,
+                       COALESCE(h.phone, '') AS phone,
+                       COALESCE(h.city, '') AS city,
                        COUNT(DISTINCT p.id) AS properties,
                        COUNT(DISTINCT b.id) AS bookings,
                        COALESCE(SUM(CASE WHEN pay.status = 'Success' THEN pay.amount ELSE 0 END), 0) AS revenue
@@ -968,15 +1076,21 @@ def create_app() -> Flask:
                 LEFT JOIN Properties p ON p.host_id = h.id
                 LEFT JOIN Bookings b ON b.property_id = p.id
                 LEFT JOIN Payments pay ON pay.booking_id = b.id
-                GROUP BY u.id, h.id, u.name, u.email, h.is_approved, h.created_at, h.bio
+                GROUP BY u.id, h.id, u.name, u.email, h.is_approved, h.created_at, h.bio, h.gender, h.phone, h.city
                 ORDER BY h.id ASC
                 """
             )
             hosts = cursor.fetchall()
             for host in hosts:
-                host["is_approved"] = bool(host["is_approved"])
+                host["id"] = host.get("host_id") or host.get("id")
+                host["status"] = "approved" if host["is_approved"] else "pending"
+                del host["is_approved"]
+                if "host_id" in host:
+                    del host["host_id"]
+                host["propertiesCount"] = host.pop("properties", 0) or 0
+                host["bookingsCount"] = host.pop("bookings", 0) or 0
                 host["revenue"] = float(host["revenue"] or 0)
-                host["created_at"] = str(host["created_at"])
+                host["createdAt"] = str(host.pop("created_at", ""))
             cursor.close()
             conn.close()
             return jsonify({"status": "success", "data": hosts}), 200
@@ -1842,6 +1956,1463 @@ def create_app() -> Flask:
             return jsonify({"status": "success", "message": f"Booking {new_status.lower()}"}), 200
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # AUTH – Host Status Check
+    # ──────────────────────────────────────────────
+    @app.post("/api/auth/host-status")
+    def host_status():
+        body = request.get_json(silent=True) or {}
+        token = body.get('token', '') or request.headers.get('X-Auth-Token', '')
+        if not token:
+            return jsonify({"status": "error", "message": "Token required"}), 401
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT u.id, u.name, u.email, u.role, h.is_approved,
+                       COALESCE(h.gender, '') AS gender,
+                       COALESCE(h.phone, '') AS phone,
+                       COALESCE(h.city, '') AS city
+                FROM Sessions s
+                JOIN Users u ON s.user_id = u.id
+                JOIN Hosts h ON h.user_id = u.id
+                WHERE s.session_token = %s AND s.expires_at > NOW() AND u.role = 'Host'
+                """,
+                (token,)
+            )
+            host = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            if not host:
+                return jsonify({"status": "error", "message": "Not authenticated"}), 401
+            return jsonify({
+                "status": "success",
+                "data": {
+                    "is_approved": bool(host["is_approved"]),
+                    "name": host["name"],
+                    "email": host["email"],
+                    "gender": host["gender"],
+                    "phone": host["phone"],
+                    "city": host["city"]
+                }
+            }), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/auth/host-registered")
+    def host_registered():
+        body = request.get_json(silent=True) or {}
+        token = body.get('token', '') or request.headers.get('X-Auth-Token', '')
+        if not token:
+            return jsonify({"status": "error", "message": "Token required"}), 401
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT u.id, u.name, u.email, h.id AS host_id
+                FROM Sessions s
+                JOIN Users u ON s.user_id = u.id
+                JOIN Hosts h ON h.user_id = u.id
+                WHERE s.session_token = %s AND s.expires_at > NOW() AND u.role = 'Host'
+                """,
+                (token,)
+            )
+            host = cursor.fetchone()
+            if not host:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Not authenticated"}), 401
+
+            cursor.execute("SELECT id FROM Users WHERE role = 'Admin' LIMIT 1")
+            admin = cursor.fetchone()
+            if admin:
+                _create_notification(cursor, admin['id'],
+                    f"New host registration: {host['name']} ({host['email']}) is awaiting approval.")
+
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Admin notified"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # ADMIN – Host Approval
+    # ──────────────────────────────────────────────
+    @app.post("/api/admin/host/approve")
+    def admin_host_approve():
+        body = request.get_json(silent=True) or {}
+        admin, error = _admin_guard(body)
+        if error:
+            return error
+        host_id = body.get('host_id')
+        if not host_id:
+            return jsonify({"status": "error", "message": "host_id is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT id, user_id FROM Hosts WHERE id = %s", (host_id,))
+            host = cursor.fetchone()
+            if not host:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Host not found"}), 404
+            cursor.execute("UPDATE Hosts SET is_approved = TRUE WHERE id = %s", (host_id,))
+            _create_notification(cursor, host['user_id'],
+                "Congratulations! Your host account has been approved. You can now access the Host Dashboard.")
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Host approved"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/admin/host/reject")
+    def admin_host_reject():
+        body = request.get_json(silent=True) or {}
+        admin, error = _admin_guard(body)
+        if error:
+            return error
+        host_id = body.get('host_id')
+        if not host_id:
+            return jsonify({"status": "error", "message": "host_id is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT id, user_id FROM Hosts WHERE id = %s", (host_id,))
+            host = cursor.fetchone()
+            if not host:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Host not found"}), 404
+            cursor.execute("DELETE FROM Hosts WHERE id = %s", (host_id,))
+            cursor.execute("UPDATE Users SET role = 'Guest' WHERE id = %s", (host['user_id'],))
+            cursor.execute("SELECT id FROM Guests WHERE user_id = %s", (host['user_id'],))
+            if not cursor.fetchone():
+                cursor.execute("INSERT INTO Guests (user_id) VALUES (%s)", (host['user_id'],))
+            _create_notification(cursor, host['user_id'],
+                "Your host registration was not approved. Your account has been set to Guest.")
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Host rejected"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # ADMIN – Enhanced Stats
+    # ──────────────────────────────────────────────
+    @app.post("/api/admin/stats")
+    def admin_stats():
+        body = request.get_json(silent=True) or {}
+        _, error = _admin_guard(body)
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+
+            def scalar(query, params=()):
+                cursor.execute(query, params)
+                row = cursor.fetchone()
+                return list(row.values())[0] if row else 0
+
+            total_revenue = float(scalar("SELECT COALESCE(SUM(amount), 0) AS total FROM Payments WHERE status = 'Success'"))
+            host_revenue = float(scalar("""
+                SELECT COALESCE(SUM(pay.amount), 0) AS total FROM Payments pay
+                JOIN Bookings b ON b.id = pay.booking_id JOIN Properties p ON p.id = b.property_id
+                WHERE pay.status = 'Success'
+            """))
+            completed_bookings = scalar("SELECT COUNT(*) AS count FROM Bookings WHERE status = 'Completed'")
+            cancelled_bookings = scalar("SELECT COUNT(*) AS count FROM Bookings WHERE status = 'Cancelled'")
+            active_properties = scalar("""
+                SELECT COUNT(DISTINCT p.id) FROM Properties p
+                JOIN Hosts h ON p.host_id = h.id WHERE h.is_approved = TRUE
+            """)
+            users_this_month = scalar("""
+                SELECT COUNT(*) FROM Users WHERE role = 'Guest'
+                AND MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())
+            """)
+            hosts_this_month = scalar("""
+                SELECT COUNT(*) FROM Hosts
+                WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())
+            """)
+            bookings_this_month = scalar("""
+                SELECT COUNT(*) FROM Bookings
+                WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())
+            """)
+            revenue_this_month = float(scalar("""
+                SELECT COALESCE(SUM(amount), 0) FROM Payments WHERE status = 'Success'
+                AND MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())
+            """))
+            total_complaints = scalar("SELECT COUNT(*) AS count FROM Complaints")
+            open_complaints = scalar("SELECT COUNT(*) AS count FROM Complaints WHERE status = 'Open'")
+
+            user_growth = []
+            cursor.execute("""
+                SELECT DATE_FORMAT(created_at, '%%Y-%%m') AS month, COUNT(*) AS count
+                FROM Users WHERE role = 'Guest'
+                GROUP BY month ORDER BY month DESC LIMIT 6
+            """)
+            for row in cursor.fetchall():
+                user_growth.append({"month": row["month"], "count": int(row["count"])})
+
+            host_growth = []
+            cursor.execute("""
+                SELECT DATE_FORMAT(created_at, '%%Y-%%m') AS month, COUNT(*) AS count
+                FROM Hosts GROUP BY month ORDER BY month DESC LIMIT 6
+            """)
+            for row in cursor.fetchall():
+                host_growth.append({"month": row["month"], "count": int(row["count"])})
+
+            booking_trends = []
+            cursor.execute("""
+                SELECT DATE_FORMAT(created_at, '%%Y-%%m') AS month, COUNT(*) AS count
+                FROM Bookings GROUP BY month ORDER BY month DESC LIMIT 6
+            """)
+            for row in cursor.fetchall():
+                booking_trends.append({"month": row["month"], "count": int(row["count"])})
+
+            revenue_analytics = []
+            cursor.execute("""
+                SELECT DATE_FORMAT(created_at, '%%Y-%%m') AS month,
+                       COALESCE(SUM(amount), 0) AS revenue
+                FROM Payments WHERE status = 'Success'
+                GROUP BY month ORDER BY month DESC LIMIT 6
+            """)
+            for row in cursor.fetchall():
+                revenue_analytics.append({"month": row["month"], "revenue": float(row["revenue"])})
+
+            property_analytics = []
+            cursor.execute("""
+                SELECT p.property_type, COUNT(*) AS count,
+                       COALESCE(AVG(r.rating), 0) AS avg_rating
+                FROM Properties p
+                LEFT JOIN Reviews r ON r.property_id = p.id
+                GROUP BY p.property_type
+            """)
+            for row in cursor.fetchall():
+                property_analytics.append({
+                    "type": row["property_type"] or "Unknown",
+                    "count": int(row["count"]),
+                    "avg_rating": round(float(row["avg_rating"] or 0), 1)
+                })
+
+            occupancy_data = []
+            cursor.execute("""
+                SELECT p.title,
+                    COALESCE(SUM(
+                        DATEDIFF(LEAST(b.check_out, LAST_DAY(CURRENT_DATE())),
+                                 GREATEST(b.check_in, DATE_FORMAT(CURRENT_DATE(), '%%Y-%%m-01'))) + 1
+                    ), 0) AS booked_days
+                FROM Properties p
+                LEFT JOIN Bookings b ON b.property_id = p.id AND b.status != 'Cancelled'
+                    AND b.check_in <= LAST_DAY(CURRENT_DATE())
+                    AND b.check_out >= DATE_FORMAT(CURRENT_DATE(), '%%Y-%%m-01')
+                GROUP BY p.id, p.title
+                ORDER BY booked_days DESC LIMIT 10
+            """)
+            for row in cursor.fetchall():
+                booked = int(row["booked_days"] or 0)
+                occupancy_data.append({
+                    "property": row["title"],
+                    "occupancy": min(100, round((booked / 30) * 100)) if booked else 0
+                })
+
+            review_analytics = []
+            cursor.execute("""
+                SELECT rating, COUNT(*) AS count FROM Reviews GROUP BY rating ORDER BY rating DESC
+            """)
+            for row in cursor.fetchall():
+                review_analytics.append({"rating": int(row["rating"]), "count": int(row["count"])})
+
+            monthly_revenue_chart = []
+            cursor.execute("""
+                SELECT DATE_FORMAT(pay.created_at, '%%b') AS month_label,
+                       COALESCE(SUM(pay.amount), 0) AS revenue,
+                       COUNT(DISTINCT b.id) AS bookings
+                FROM Payments pay
+                JOIN Bookings b ON b.id = pay.booking_id
+                WHERE pay.status = 'Success'
+                GROUP BY DATE_FORMAT(pay.created_at, '%%Y-%%m'), month_label
+                ORDER BY DATE_FORMAT(pay.created_at, '%%Y-%%m') ASC LIMIT 12
+            """)
+            for row in cursor.fetchall():
+                monthly_revenue_chart.append({
+                    "month": row["month_label"],
+                    "revenue": float(row["revenue"]),
+                    "bookings": int(row["bookings"])
+                })
+
+            stats = {
+                "total_users": scalar("SELECT COUNT(*) AS count FROM Users"),
+                "total_guests": scalar("SELECT COUNT(*) AS count FROM Guests"),
+                "total_hosts": scalar("SELECT COUNT(*) AS count FROM Hosts"),
+                "active_hosts": scalar("SELECT COUNT(*) AS count FROM Hosts WHERE is_approved = TRUE"),
+                "pending_hosts": scalar("SELECT COUNT(*) AS count FROM Hosts WHERE is_approved = FALSE"),
+                "total_properties": scalar("SELECT COUNT(*) AS count FROM Properties"),
+                "active_properties": int(active_properties),
+                "total_bookings": scalar("SELECT COUNT(*) AS count FROM Bookings"),
+                "active_bookings": scalar("SELECT COUNT(*) AS count FROM Bookings WHERE status NOT IN ('Cancelled', 'Completed')"),
+                "completed_bookings": int(completed_bookings),
+                "cancelled_bookings": int(cancelled_bookings),
+                "total_revenue": total_revenue,
+                "host_revenue": host_revenue,
+                "total_reviews": scalar("SELECT COUNT(*) AS count FROM Reviews"),
+                "total_complaints": int(total_complaints),
+                "open_complaints": int(open_complaints),
+                "users_this_month": int(users_this_month),
+                "hosts_this_month": int(hosts_this_month),
+                "bookings_this_month": int(bookings_this_month),
+                "revenue_this_month": revenue_this_month,
+                "user_growth": user_growth,
+                "host_growth": host_growth,
+                "booking_trends": booking_trends,
+                "revenue_analytics": revenue_analytics,
+                "property_analytics": property_analytics,
+                "occupancy_data": occupancy_data,
+                "review_analytics": review_analytics,
+                "monthly_revenue_chart": monthly_revenue_chart
+            }
+
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": stats}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Error loading admin stats: {str(e)}"}), 500
+
+    # ──────────────────────────────────────────────
+    # ADMIN – Users Management
+    # ──────────────────────────────────────────────
+    @app.post("/api/admin/users")
+    def admin_users():
+        body = request.get_json(silent=True) or {}
+        _, error = _admin_guard(body)
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT u.id, u.name, u.email, u.role, u.created_at, u.profile_picture,
+                       CASE WHEN g.id IS NOT NULL THEN g.id ELSE NULL END AS guest_id,
+                       CASE WHEN h.id IS NOT NULL THEN h.id ELSE NULL END AS host_id,
+                       CASE WHEN h.is_approved IS NOT NULL THEN h.is_approved ELSE NULL END AS is_approved,
+                       (SELECT COUNT(*) FROM Bookings b WHERE b.guest_id = g.id) AS bookings_count,
+                       (SELECT COALESCE(SUM(CASE WHEN b.status != 'Cancelled' THEN b.total_price ELSE 0 END), 0)
+                        FROM Bookings b WHERE b.guest_id = g.id) AS booking_value,
+                       (SELECT COUNT(*) FROM Properties p WHERE p.host_id = h.id) AS properties_count
+                FROM Users u
+                LEFT JOIN Guests g ON g.user_id = u.id
+                LEFT JOIN Hosts h ON h.user_id = u.id
+                ORDER BY u.id ASC
+            """)
+            users = cursor.fetchall()
+            for u in users:
+                u["created_at"] = str(u["created_at"])
+                u["booking_value"] = float(u["booking_value"] or 0)
+                u["is_approved"] = bool(u["is_approved"]) if u["is_approved"] is not None else None
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": users}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/admin/user/delete")
+    def admin_user_delete():
+        body = request.get_json(silent=True) or {}
+        _, error = _admin_guard(body)
+        if error:
+            return error
+        user_id = body.get('user_id')
+        if not user_id:
+            return jsonify({"status": "error", "message": "user_id is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM Users WHERE id = %s AND role != 'Admin'", (user_id,))
+            affected = cursor.rowcount
+            conn.commit()
+            cursor.close()
+            conn.close()
+            if affected == 0:
+                return jsonify({"status": "error", "message": "User not found or cannot delete admins"}), 404
+            return jsonify({"status": "success", "message": "User deleted"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # ADMIN – Property Delete
+    # ──────────────────────────────────────────────
+    @app.post("/api/admin/property/delete")
+    def admin_property_delete():
+        body = request.get_json(silent=True) or {}
+        _, error = _admin_guard(body)
+        if error:
+            return error
+        property_id = body.get('property_id')
+        if not property_id:
+            return jsonify({"status": "error", "message": "property_id is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM Properties WHERE id = %s", (property_id,))
+            affected = cursor.rowcount
+            conn.commit()
+            cursor.close()
+            conn.close()
+            if affected == 0:
+                return jsonify({"status": "error", "message": "Property not found"}), 404
+            return jsonify({"status": "success", "message": "Property deleted"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # ADMIN – Payments
+    # ──────────────────────────────────────────────
+    @app.post("/api/admin/payments")
+    def admin_payments():
+        body = request.get_json(silent=True) or {}
+        _, error = _admin_guard(body)
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT pay.id, pay.amount, pay.payment_method, pay.status, pay.transaction_id, pay.created_at,
+                       b.id AS booking_id, b.check_in, b.check_out,
+                       p.title AS property_title,
+                       guest_user.name AS guest_name, guest_user.email AS guest_email
+                FROM Payments pay
+                JOIN Bookings b ON b.id = pay.booking_id
+                JOIN Properties p ON p.id = b.property_id
+                JOIN Guests g ON g.id = b.guest_id
+                JOIN Users guest_user ON guest_user.id = g.user_id
+                ORDER BY pay.created_at DESC LIMIT 100
+            """)
+            payments = cursor.fetchall()
+            for pay in payments:
+                pay["amount"] = float(pay["amount"])
+                pay["created_at"] = str(pay["created_at"])
+                pay["check_in"] = str(pay["check_in"])
+                pay["check_out"] = str(pay["check_out"])
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": payments}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # ADMIN – Reviews
+    # ──────────────────────────────────────────────
+    @app.post("/api/admin/reviews")
+    def admin_reviews():
+        body = request.get_json(silent=True) or {}
+        _, error = _admin_guard(body)
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT r.id, r.rating, r.comment, r.created_at,
+                       p.title AS property_title, p.id AS property_id,
+                       guest_user.name AS guest_name, guest_user.email AS guest_email
+                FROM Reviews r
+                JOIN Properties p ON p.id = r.property_id
+                JOIN Guests g ON g.id = r.guest_id
+                JOIN Users guest_user ON guest_user.id = g.user_id
+                ORDER BY r.created_at DESC LIMIT 100
+            """)
+            reviews = cursor.fetchall()
+            for rev in reviews:
+                rev["created_at"] = str(rev["created_at"])
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": reviews}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/admin/review/delete")
+    def admin_review_delete():
+        body = request.get_json(silent=True) or {}
+        _, error = _admin_guard(body)
+        if error:
+            return error
+        review_id = body.get('review_id')
+        if not review_id:
+            return jsonify({"status": "error", "message": "review_id is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM Reviews WHERE id = %s", (review_id,))
+            affected = cursor.rowcount
+            conn.commit()
+            cursor.close()
+            conn.close()
+            if affected == 0:
+                return jsonify({"status": "error", "message": "Review not found"}), 404
+            return jsonify({"status": "success", "message": "Review deleted"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # ADMIN – Complaints
+    # ──────────────────────────────────────────────
+    @app.post("/api/admin/complaints")
+    def admin_complaints():
+        body = request.get_json(silent=True) or {}
+        _, error = _admin_guard(body)
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT c.id, c.subject, c.description, c.status, c.admin_response,
+                       c.created_at, c.updated_at,
+                       u.name AS user_name, u.email AS user_email, u.role AS user_role
+                FROM Complaints c
+                JOIN Users u ON c.user_id = u.id
+                ORDER BY c.created_at DESC
+            """)
+            complaints = cursor.fetchall()
+            for comp in complaints:
+                comp["created_at"] = str(comp["created_at"])
+                comp["updated_at"] = str(comp["updated_at"])
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": complaints}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/admin/complaint/update")
+    def admin_complaint_update():
+        body = request.get_json(silent=True) or {}
+        _, error = _admin_guard(body)
+        if error:
+            return error
+        complaint_id = body.get('complaint_id')
+        status_val = body.get('status', '')
+        admin_response = body.get('admin_response', '')
+        if not complaint_id:
+            return jsonify({"status": "error", "message": "complaint_id is required"}), 400
+        valid_statuses = ('Open', 'In Progress', 'Resolved', 'Closed')
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT id, user_id FROM Complaints WHERE id = %s", (complaint_id,))
+            comp = cursor.fetchone()
+            if not comp:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Complaint not found"}), 404
+            updates = []
+            params = []
+            if status_val and status_val in valid_statuses:
+                updates.append("status = %s")
+                params.append(status_val)
+            if admin_response:
+                updates.append("admin_response = %s")
+                params.append(admin_response.strip())
+            if updates:
+                params.append(complaint_id)
+                cursor.execute(f"UPDATE Complaints SET {', '.join(updates)} WHERE id = %s", params)
+                _create_notification(cursor, comp['user_id'],
+                    f"Your complaint #{complaint_id} has been updated. Status: {status_val or 'unchanged'}.")
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Complaint updated"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # ADMIN – Notifications
+    # ──────────────────────────────────────────────
+    @app.get("/api/admin/notifications")
+    def admin_notifications():
+        token = request.headers.get('X-Auth-Token', '')
+        admin, error = _admin_guard({'token': token})
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT id, message, is_read, created_at FROM Notifications WHERE user_id = %s ORDER BY created_at DESC LIMIT 50",
+                (admin["id"],)
+            )
+            notifications = cursor.fetchall()
+            for n in notifications:
+                n["created_at"] = str(n["created_at"])
+                n["is_read"] = bool(n["is_read"])
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": notifications}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/admin/notifications/read")
+    def admin_notifications_read():
+        body = request.get_json(silent=True) or {}
+        admin, error = _admin_guard(body)
+        if error:
+            return error
+        notif_id = body.get('notification_id')
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            if notif_id:
+                cursor.execute("UPDATE Notifications SET is_read = TRUE WHERE id = %s AND user_id = %s", (notif_id, admin["id"]))
+            else:
+                cursor.execute("UPDATE Notifications SET is_read = TRUE WHERE user_id = %s", (admin["id"],))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Notifications marked as read"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/admin/notifications/delete")
+    def admin_notifications_delete():
+        body = request.get_json(silent=True) or {}
+        admin, error = _admin_guard(body)
+        if error:
+            return error
+        notif_id = body.get('notification_id')
+        if not notif_id:
+            return jsonify({"status": "error", "message": "notification_id is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM Notifications WHERE id = %s AND user_id = %s", (notif_id, admin["id"]))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Notification deleted"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # ADMIN – Profile
+    # ──────────────────────────────────────────────
+    @app.get("/api/admin/profile")
+    def admin_profile_get():
+        token = request.headers.get('X-Auth-Token', '')
+        admin, error = _admin_guard({'token': token})
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT u.id, u.name, u.email, u.profile_picture, u.created_at FROM Users u WHERE u.id = %s",
+                (admin["id"],)
+            )
+            profile = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            if profile:
+                profile["created_at"] = str(profile["created_at"])
+            return jsonify({"status": "success", "data": profile}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/admin/profile")
+    def admin_profile_update():
+        body = request.get_json(silent=True) or {}
+        admin, error = _admin_guard(body)
+        if error:
+            return error
+        name = body.get('name', '').strip()
+        profile_picture = body.get('profile_picture', '').strip()
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            if name:
+                cursor.execute("UPDATE Users SET name = %s WHERE id = %s", (name, admin["id"]))
+            if profile_picture:
+                cursor.execute("UPDATE Users SET profile_picture = %s WHERE id = %s", (profile_picture, admin["id"]))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Profile updated"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/admin/change_password")
+    def admin_change_password():
+        body = request.get_json(silent=True) or {}
+        admin, error = _admin_guard(body)
+        if error:
+            return error
+        old_password = body.get('old_password', '')
+        new_password = body.get('new_password', '')
+        if not old_password or not new_password:
+            return jsonify({"status": "error", "message": "Both passwords are required"}), 400
+        if len(new_password) < 8:
+            return jsonify({"status": "error", "message": "New password must be at least 8 characters"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT password_hash, salt FROM Users WHERE id = %s", (admin["id"],))
+            user = cursor.fetchone()
+            old_hash = hash_password(old_password, user['salt'])
+            if old_hash != user['password_hash']:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Current password is incorrect"}), 400
+            new_salt = generate_salt()
+            new_hash = hash_password(new_password, new_salt)
+            cursor.execute("UPDATE Users SET password_hash = %s, salt = %s WHERE id = %s", (new_hash, new_salt, admin["id"]))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Password changed successfully"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # ADMIN – Analytics
+    # ──────────────────────────────────────────────
+    @app.post("/api/admin/analytics")
+    def admin_analytics():
+        body = request.get_json(silent=True) or {}
+        _, error = _admin_guard(body)
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+
+            monthly_data = []
+            cursor.execute("""
+                SELECT DATE_FORMAT(b.created_at, '%%b') AS month_label,
+                       COUNT(*) AS bookings,
+                       COALESCE(SUM(b.total_price), 0) AS revenue
+                FROM Bookings b WHERE b.status != 'Cancelled'
+                GROUP BY DATE_FORMAT(b.created_at, '%%Y-%%m'), month_label
+                ORDER BY DATE_FORMAT(b.created_at, '%%Y-%%m') ASC LIMIT 12
+            """)
+            for row in cursor.fetchall():
+                monthly_data.append({
+                    "month": row["month_label"],
+                    "bookings": int(row["bookings"]),
+                    "revenue": float(row["revenue"])
+                })
+
+            property_type_dist = []
+            cursor.execute("""
+                SELECT property_type, COUNT(*) AS count FROM Properties GROUP BY property_type
+            """)
+            for row in cursor.fetchall():
+                property_type_dist.append({"type": row["property_type"] or "Unknown", "count": int(row["count"])})
+
+            booking_status_dist = []
+            cursor.execute("""
+                SELECT status, COUNT(*) AS count FROM Bookings GROUP BY status
+            """)
+            for row in cursor.fetchall():
+                booking_status_dist.append({"status": row["status"], "count": int(row["count"])})
+
+            top_hosts = []
+            cursor.execute("""
+                SELECT u.name, COUNT(DISTINCT p.id) AS properties,
+                       COUNT(DISTINCT b.id) AS bookings,
+                       COALESCE(SUM(CASE WHEN pay.status = 'Success' THEN pay.amount ELSE 0 END), 0) AS revenue
+                FROM Users u
+                JOIN Hosts h ON h.user_id = u.id
+                JOIN Properties p ON p.host_id = h.id
+                LEFT JOIN Bookings b ON b.property_id = p.id
+                LEFT JOIN Payments pay ON pay.booking_id = b.id
+                WHERE h.is_approved = TRUE
+                GROUP BY u.id, u.name ORDER BY revenue DESC LIMIT 10
+            """)
+            for row in cursor.fetchall():
+                top_hosts.append({
+                    "name": row["name"],
+                    "properties": int(row["properties"]),
+                    "bookings": int(row["bookings"]),
+                    "revenue": float(row["revenue"])
+                })
+
+            top_properties = []
+            cursor.execute("""
+                SELECT p.title, p.address,
+                       COUNT(DISTINCT b.id) AS bookings,
+                       COALESCE(AVG(r.rating), 0) AS avg_rating,
+                       COALESCE(SUM(CASE WHEN pay.status = 'Success' THEN pay.amount ELSE 0 END), 0) AS revenue
+                FROM Properties p
+                LEFT JOIN Bookings b ON b.property_id = p.id
+                LEFT JOIN Reviews r ON r.property_id = p.id
+                LEFT JOIN Payments pay ON pay.booking_id = b.id
+                GROUP BY p.id, p.title, p.address
+                ORDER BY revenue DESC LIMIT 10
+            """)
+            for row in cursor.fetchall():
+                top_properties.append({
+                    "title": row["title"],
+                    "address": row["address"],
+                    "bookings": int(row["bookings"]),
+                    "avg_rating": round(float(row["avg_rating"] or 0), 1),
+                    "revenue": float(row["revenue"])
+                })
+
+            daily_bookings = []
+            cursor.execute("""
+                SELECT DATE(created_at) AS day, COUNT(*) AS count
+                FROM Bookings WHERE created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+                GROUP BY day ORDER BY day ASC
+            """)
+            for row in cursor.fetchall():
+                daily_bookings.append({"date": str(row["day"]), "count": int(row["count"])})
+
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": {
+                "monthly_data": monthly_data,
+                "property_type_distribution": property_type_dist,
+                "booking_status_distribution": booking_status_dist,
+                "top_hosts": top_hosts,
+                "top_properties": top_properties,
+                "daily_bookings": daily_bookings
+            }}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # ADMIN – Reports
+    # ──────────────────────────────────────────────
+    @app.post("/api/admin/reports")
+    def admin_reports():
+        body = request.get_json(silent=True) or {}
+        _, error = _admin_guard(body)
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+
+            revenue_by_month = []
+            cursor.execute("""
+                SELECT DATE_FORMAT(pay.created_at, '%%Y-%%m') AS month,
+                       COALESCE(SUM(pay.amount), 0) AS revenue,
+                       COUNT(DISTINCT b.id) AS bookings
+                FROM Payments pay
+                JOIN Bookings b ON b.id = pay.booking_id
+                WHERE pay.status = 'Success'
+                GROUP BY month ORDER BY month DESC LIMIT 12
+            """)
+            for row in cursor.fetchall():
+                revenue_by_month.append({
+                    "month": row["month"],
+                    "revenue": float(row["revenue"]),
+                    "bookings": int(row["bookings"])
+                })
+
+            revenue_by_property_type = []
+            cursor.execute("""
+                SELECT p.property_type,
+                       COALESCE(SUM(pay.amount), 0) AS revenue,
+                       COUNT(DISTINCT b.id) AS bookings
+                FROM Payments pay
+                JOIN Bookings b ON b.id = pay.booking_id
+                JOIN Properties p ON p.id = b.property_id
+                WHERE pay.status = 'Success'
+                GROUP BY p.property_type
+            """)
+            for row in cursor.fetchall():
+                revenue_by_property_type.append({
+                    "type": row["property_type"] or "Unknown",
+                    "revenue": float(row["revenue"]),
+                    "bookings": int(row["bookings"])
+                })
+
+            host_performance = []
+            cursor.execute("""
+                SELECT u.name,
+                       COUNT(DISTINCT p.id) AS properties,
+                       COUNT(DISTINCT b.id) AS bookings,
+                       COALESCE(AVG(r.rating), 0) AS avg_rating,
+                       COALESCE(SUM(CASE WHEN pay.status = 'Success' THEN pay.amount ELSE 0 END), 0) AS revenue
+                FROM Users u
+                JOIN Hosts h ON h.user_id = u.id AND h.is_approved = TRUE
+                LEFT JOIN Properties p ON p.host_id = h.id
+                LEFT JOIN Bookings b ON b.property_id = p.id
+                LEFT JOIN Reviews r ON r.property_id = p.id
+                LEFT JOIN Payments pay ON pay.booking_id = b.id
+                GROUP BY u.id, u.name ORDER BY revenue DESC
+            """)
+            for row in cursor.fetchall():
+                host_performance.append({
+                    "name": row["name"],
+                    "properties": int(row["properties"]),
+                    "bookings": int(row["bookings"]),
+                    "avg_rating": round(float(row["avg_rating"] or 0), 1),
+                    "revenue": float(row["revenue"])
+                })
+
+            guest_activity = []
+            cursor.execute("""
+                SELECT u.name, u.email,
+                       COUNT(DISTINCT b.id) AS total_bookings,
+                       COALESCE(SUM(CASE WHEN b.status != 'Cancelled' THEN b.total_price ELSE 0 END), 0) AS total_spent,
+                       COUNT(DISTINCT rv.id) AS reviews_written
+                FROM Users u
+                JOIN Guests g ON g.user_id = u.id
+                LEFT JOIN Bookings b ON b.guest_id = g.id
+                LEFT JOIN Reviews rv ON rv.guest_id = g.id
+                GROUP BY u.id, u.name, u.email
+                ORDER BY total_spent DESC LIMIT 20
+            """)
+            for row in cursor.fetchall():
+                guest_activity.append({
+                    "name": row["name"],
+                    "email": row["email"],
+                    "total_bookings": int(row["total_bookings"]),
+                    "total_spent": float(row["total_spent"]),
+                    "reviews_written": int(row["reviews_written"])
+                })
+
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": {
+                "revenue_by_month": revenue_by_month,
+                "revenue_by_property_type": revenue_by_property_type,
+                "host_performance": host_performance,
+                "guest_activity": guest_activity
+            }}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # ADMIN – Booking Actions
+    # ──────────────────────────────────────────────
+    @app.post("/api/admin/booking/action")
+    def admin_booking_action():
+        body = request.get_json(silent=True) or {}
+        _, error = _admin_guard(body)
+        if error:
+            return error
+        booking_id = body.get('booking_id')
+        action = body.get('action')
+        valid_actions = ('confirm', 'cancel', 'checkin', 'complete')
+        if not booking_id or action not in valid_actions:
+            return jsonify({"status": "error", "message": "booking_id and valid action required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT id, status, guest_id FROM Bookings WHERE id = %s", (booking_id,))
+            booking = cursor.fetchone()
+            if not booking:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Booking not found"}), 404
+
+            status_map = {
+                'confirm': 'Confirmed', 'cancel': 'Cancelled',
+                'checkin': 'Checked-In', 'complete': 'Completed'
+            }
+            new_status = status_map[action]
+
+            allowed_transitions = {
+                'confirm': ['Pending'], 'cancel': ['Pending', 'Confirmed', 'Checked-In'],
+                'checkin': ['Confirmed'], 'complete': ['Checked-In']
+            }
+            if booking['status'] not in allowed_transitions[action]:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": f"Cannot {action} a booking with status '{booking['status']}'"}), 400
+
+            cursor.execute("UPDATE Bookings SET status = %s WHERE id = %s", (new_status, booking_id))
+
+            guest_user_cursor = conn.cursor(dictionary=True)
+            guest_user_cursor.execute("SELECT user_id FROM Guests WHERE id = %s", (booking['guest_id'],))
+            guest_user = guest_user_cursor.fetchone()
+            guest_user_cursor.close()
+            if guest_user:
+                _create_notification(cursor, guest_user['user_id'],
+                    f"Your booking #{booking_id} status updated to: {new_status} (by Admin)")
+
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": f"Booking {new_status.lower()}"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # GUEST – Profile
+    # ──────────────────────────────────────────────
+    @app.get("/api/guest/profile")
+    def guest_profile_get():
+        token = request.headers.get('X-Auth-Token', '')
+        guest, error = _guest_guard({'token': token})
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT u.id, u.name, u.email, u.profile_picture, g.bio, u.created_at
+                FROM Users u
+                JOIN Guests g ON g.user_id = u.id
+                WHERE u.id = %s
+                """,
+                (guest["id"],)
+            )
+            profile = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            if profile:
+                profile["created_at"] = str(profile["created_at"])
+            return jsonify({"status": "success", "data": profile}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/guest/profile")
+    def guest_profile_update():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        name = body.get('name', '').strip()
+        bio = body.get('bio', '').strip()
+        profile_picture = body.get('profile_picture', '').strip()
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            if name:
+                cursor.execute("UPDATE Users SET name = %s WHERE id = %s", (name, guest["id"]))
+            if profile_picture:
+                cursor.execute("UPDATE Users SET profile_picture = %s WHERE id = %s", (profile_picture, guest["id"]))
+            cursor.execute("UPDATE Guests SET bio = %s WHERE user_id = %s", (bio, guest["id"]))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Profile updated"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/guest/change_password")
+    def guest_change_password():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        old_password = body.get('old_password', '')
+        new_password = body.get('new_password', '')
+        if not old_password or not new_password:
+            return jsonify({"status": "error", "message": "Both passwords are required"}), 400
+        if len(new_password) < 8:
+            return jsonify({"status": "error", "message": "New password must be at least 8 characters"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT password_hash, salt FROM Users WHERE id = %s", (guest["id"],))
+            user = cursor.fetchone()
+            old_hash = hash_password(old_password, user['salt'])
+            if old_hash != user['password_hash']:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Current password is incorrect"}), 400
+            new_salt = generate_salt()
+            new_hash = hash_password(new_password, new_salt)
+            cursor.execute("UPDATE Users SET password_hash = %s, salt = %s WHERE id = %s", (new_hash, new_salt, guest["id"]))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Password changed successfully"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # GUEST – Dashboard Stats
+    # ──────────────────────────────────────────────
+    @app.post("/api/guest/stats")
+    def guest_stats():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+
+            total_bookings = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM Bookings WHERE guest_id = %s", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
+            active_bookings = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM Bookings WHERE guest_id = %s AND status IN ('Pending','Confirmed','Checked-In')", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
+            completed_bookings = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM Bookings WHERE guest_id = %s AND status = 'Completed'", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
+            total_spent = float((lambda: (cursor.execute("SELECT COALESCE(SUM(pay.amount), 0) AS t FROM Payments pay JOIN Bookings b ON b.id = pay.booking_id WHERE b.guest_id = %s AND pay.status = 'Success'", (guest['guest_id'],)) or True) and cursor.fetchone()['t'])())
+            wishlist_count = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM Wishlist WHERE guest_id = %s", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
+            reviews_count = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM Reviews WHERE guest_id = %s", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
+            unread_notifications = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM Notifications WHERE user_id = %s AND is_read = FALSE", (guest['id'],)) or True) and cursor.fetchone()['c'])()
+
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": {
+                "total_bookings": int(total_bookings),
+                "active_bookings": int(active_bookings),
+                "completed_bookings": int(completed_bookings),
+                "total_spent": total_spent,
+                "wishlist_count": int(wishlist_count),
+                "reviews_count": int(reviews_count),
+                "unread_notifications": int(unread_notifications)
+            }}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # GUEST – Wishlist
+    # ──────────────────────────────────────────────
+    @app.post("/api/guest/wishlist")
+    def guest_wishlist():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT w.id AS wishlist_id, w.created_at,
+                       p.id, p.title, p.image_url, p.property_type, p.address,
+                       p.price_per_night, p.max_guests,
+                       COALESCE(AVG(r.rating), 0) AS average_rating,
+                       COUNT(DISTINCT r.id) AS review_count
+                FROM Wishlist w
+                JOIN Properties p ON p.id = w.property_id
+                LEFT JOIN Reviews r ON r.property_id = p.id
+                WHERE w.guest_id = %s
+                GROUP BY w.id, p.id, p.title, p.image_url, p.property_type, p.address,
+                         p.price_per_night, p.max_guests, w.created_at
+                ORDER BY w.created_at DESC
+            """, (guest['guest_id'],))
+            items = cursor.fetchall()
+            for item in items:
+                item["price_per_night"] = float(item["price_per_night"])
+                item["average_rating"] = round(float(item["average_rating"] or 0), 1)
+                item["created_at"] = str(item["created_at"])
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": items}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/guest/wishlist/add")
+    def guest_wishlist_add():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        property_id = body.get('property_id')
+        if not property_id:
+            return jsonify({"status": "error", "message": "property_id is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT IGNORE INTO Wishlist (guest_id, property_id) VALUES (%s, %s)",
+                (guest['guest_id'], property_id)
+            )
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Added to wishlist"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/guest/wishlist/remove")
+    def guest_wishlist_remove():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        property_id = body.get('property_id')
+        if not property_id:
+            return jsonify({"status": "error", "message": "property_id is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM Wishlist WHERE guest_id = %s AND property_id = %s",
+                           (guest['guest_id'], property_id))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Removed from wishlist"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/guest/wishlist/check")
+    def guest_wishlist_check():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        property_id = body.get('property_id')
+        if not property_id:
+            return jsonify({"status": "error", "message": "property_id is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM Wishlist WHERE guest_id = %s AND property_id = %s",
+                           (guest['guest_id'], property_id))
+            exists = cursor.fetchone() is not None
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": {"is_wishlisted": exists}}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # GUEST – Reviews
+    # ──────────────────────────────────────────────
+    @app.post("/api/guest/reviews")
+    def guest_reviews():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT r.id, r.rating, r.comment, r.created_at,
+                       p.title AS property_title, p.id AS property_id
+                FROM Reviews r
+                JOIN Properties p ON p.id = r.property_id
+                WHERE r.guest_id = %s
+                ORDER BY r.created_at DESC
+            """, (guest['guest_id'],))
+            reviews = cursor.fetchall()
+            for rev in reviews:
+                rev["created_at"] = str(rev["created_at"])
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": reviews}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/guest/reviews/create")
+    def guest_review_create():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        property_id = body.get('property_id')
+        rating = body.get('rating')
+        comment = body.get('comment', '').strip()
+        if not property_id or not rating:
+            return jsonify({"status": "error", "message": "property_id and rating are required"}), 400
+        try:
+            rating = int(rating)
+            if rating < 1 or rating > 5:
+                return jsonify({"status": "error", "message": "Rating must be between 1 and 5"}), 400
+        except (ValueError, TypeError):
+            return jsonify({"status": "error", "message": "Invalid rating"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT id FROM Bookings WHERE guest_id = %s AND property_id = %s AND status IN ('Confirmed','Completed','Checked-In')",
+                           (guest['guest_id'], property_id))
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "You can only review properties you have booked"}), 403
+            cursor.execute("SELECT id FROM Reviews WHERE guest_id = %s AND property_id = %s", (guest['guest_id'], property_id))
+            if cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "You have already reviewed this property"}), 409
+            cursor.execute("INSERT INTO Reviews (property_id, guest_id, rating, comment) VALUES (%s, %s, %s, %s)",
+                           (property_id, guest['guest_id'], rating, comment or None))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Review submitted"}), 201
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/guest/reviews/delete")
+    def guest_review_delete():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        review_id = body.get('review_id')
+        if not review_id:
+            return jsonify({"status": "error", "message": "review_id is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM Reviews WHERE id = %s AND guest_id = %s", (review_id, guest['guest_id']))
+            affected = cursor.rowcount
+            conn.commit()
+            cursor.close()
+            conn.close()
+            if affected == 0:
+                return jsonify({"status": "error", "message": "Review not found"}), 404
+            return jsonify({"status": "success", "message": "Review deleted"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # GUEST – Notifications
+    # ──────────────────────────────────────────────
+    @app.get("/api/guest/notifications")
+    def guest_notifications():
+        token = request.headers.get('X-Auth-Token', '')
+        guest, error = _guest_guard({'token': token})
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT id, message, is_read, created_at FROM Notifications WHERE user_id = %s ORDER BY created_at DESC LIMIT 50",
+                (guest["id"],)
+            )
+            notifications = cursor.fetchall()
+            for n in notifications:
+                n["created_at"] = str(n["created_at"])
+                n["is_read"] = bool(n["is_read"])
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": notifications}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/guest/notifications/read")
+    def guest_notifications_read():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        notif_id = body.get('notification_id')
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            if notif_id:
+                cursor.execute("UPDATE Notifications SET is_read = TRUE WHERE id = %s AND user_id = %s", (notif_id, guest["id"]))
+            else:
+                cursor.execute("UPDATE Notifications SET is_read = TRUE WHERE user_id = %s", (guest["id"],))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Notifications marked as read"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/guest/notifications/delete")
+    def guest_notifications_delete():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        notif_id = body.get('notification_id')
+        if not notif_id:
+            return jsonify({"status": "error", "message": "notification_id is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM Notifications WHERE id = %s AND user_id = %s", (notif_id, guest["id"]))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Notification deleted"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # GUEST – Payments History
+    # ──────────────────────────────────────────────
+    @app.post("/api/guest/payments")
+    def guest_payments():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT pay.id, pay.amount, pay.payment_method, pay.status, pay.transaction_id, pay.created_at,
+                       b.id AS booking_id, b.check_in, b.check_out, b.total_price,
+                       p.title AS property_title, p.image_url
+                FROM Payments pay
+                JOIN Bookings b ON b.id = pay.booking_id
+                JOIN Properties p ON p.id = b.property_id
+                WHERE b.guest_id = %s
+                ORDER BY pay.created_at DESC
+            """, (guest['guest_id'],))
+            payments = cursor.fetchall()
+            for pay in payments:
+                pay["amount"] = float(pay["amount"])
+                pay["total_price"] = float(pay["total_price"])
+                pay["created_at"] = str(pay["created_at"])
+                pay["check_in"] = str(pay["check_in"])
+                pay["check_out"] = str(pay["check_out"])
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": payments}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # GUEST – Complaints
+    # ──────────────────────────────────────────────
+    @app.post("/api/guest/complaints")
+    def guest_complaints():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT id, subject, description, status, admin_response, created_at, updated_at
+                FROM Complaints WHERE user_id = %s ORDER BY created_at DESC
+            """, (guest['id'],))
+            complaints = cursor.fetchall()
+            for c in complaints:
+                c["created_at"] = str(c["created_at"])
+                c["updated_at"] = str(c["updated_at"])
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": complaints}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/guest/complaint/create")
+    def guest_complaint_create():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        subject = body.get('subject', '').strip()
+        description = body.get('description', '').strip()
+        if not subject or not description:
+            return jsonify({"status": "error", "message": "Subject and description are required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO Complaints (user_id, subject, description) VALUES (%s, %s, %s)",
+                           (guest['id'], subject, description))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Complaint submitted"}), 201
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # ADMIN – Bookings (already exists, kept as-is)
+    # ──────────────────────────────────────────────
 
     return app
 
