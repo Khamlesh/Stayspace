@@ -31,8 +31,8 @@ def hash_password(password, salt):
     return hashlib.sha256(combined.encode()).hexdigest()
 
 SCHEMA_SQL = """
--- 1. Users Table
-CREATE TABLE IF NOT EXISTS Users (
+-- 1. users Table
+CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     email VARCHAR(100) UNIQUE NOT NULL,
@@ -43,17 +43,17 @@ CREATE TABLE IF NOT EXISTS Users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
--- 2. Guests Table
-CREATE TABLE IF NOT EXISTS Guests (
+-- 2. guests Table
+CREATE TABLE IF NOT EXISTS guests (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL UNIQUE,
     bio TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- 3. Hosts Table
-CREATE TABLE IF NOT EXISTS Hosts (
+-- 3. hosts Table
+CREATE TABLE IF NOT EXISTS hosts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL UNIQUE,
     is_approved BOOLEAN DEFAULT FALSE,
@@ -62,19 +62,19 @@ CREATE TABLE IF NOT EXISTS Hosts (
     city VARCHAR(100) DEFAULT '',
     bio TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- 4. Admins Table
-CREATE TABLE IF NOT EXISTS Admins (
+-- 4. admins Table
+CREATE TABLE IF NOT EXISTS admins (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL UNIQUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- 5. Properties Table
-CREATE TABLE IF NOT EXISTS Properties (
+-- 5. properties Table
+CREATE TABLE IF NOT EXISTS properties (
     id INT AUTO_INCREMENT PRIMARY KEY,
     host_id INT NOT NULL,
     title VARCHAR(150) NOT NULL,
@@ -85,22 +85,22 @@ CREATE TABLE IF NOT EXISTS Properties (
     latitude DECIMAL(9, 6) NULL,
     longitude DECIMAL(9, 6) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (host_id) REFERENCES Hosts(id) ON DELETE CASCADE,
+    FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE,
     INDEX idx_price (price_per_night),
     INDEX idx_host (host_id)
 ) ENGINE=InnoDB;
 
--- 6. Amenities Table
-CREATE TABLE IF NOT EXISTS Amenities (
+-- 6. amenities Table
+CREATE TABLE IF NOT EXISTS amenities (
     id INT AUTO_INCREMENT PRIMARY KEY,
     property_id INT NOT NULL,
     name VARCHAR(100) NOT NULL,
-    FOREIGN KEY (property_id) REFERENCES Properties(id) ON DELETE CASCADE,
+    FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE,
     INDEX idx_property (property_id)
 ) ENGINE=InnoDB;
 
--- 7. Bookings Table
-CREATE TABLE IF NOT EXISTS Bookings (
+-- 7. bookings Table
+CREATE TABLE IF NOT EXISTS bookings (
     id INT AUTO_INCREMENT PRIMARY KEY,
     property_id INT NOT NULL,
     guest_id INT NOT NULL,
@@ -111,13 +111,13 @@ CREATE TABLE IF NOT EXISTS Bookings (
     guests_count INT DEFAULT 1,
     special_requests TEXT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (property_id) REFERENCES Properties(id) ON DELETE CASCADE,
-    FOREIGN KEY (guest_id) REFERENCES Guests(id) ON DELETE CASCADE,
+    FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE,
+    FOREIGN KEY (guest_id) REFERENCES guests(id) ON DELETE CASCADE,
     INDEX idx_dates (check_in, check_out)
 ) ENGINE=InnoDB;
 
--- 8. Payments Table
-CREATE TABLE IF NOT EXISTS Payments (
+-- 8. payments Table
+CREATE TABLE IF NOT EXISTS payments (
     id INT AUTO_INCREMENT PRIMARY KEY,
     booking_id INT NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
@@ -125,75 +125,75 @@ CREATE TABLE IF NOT EXISTS Payments (
     status ENUM('Success', 'Failed') DEFAULT 'Success',
     transaction_id VARCHAR(100) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (booking_id) REFERENCES Bookings(id) ON DELETE CASCADE,
+    FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
     INDEX idx_transaction (transaction_id)
 ) ENGINE=InnoDB;
 
--- 9. Reviews Table
-CREATE TABLE IF NOT EXISTS Reviews (
+-- 9. reviews Table
+CREATE TABLE IF NOT EXISTS reviews (
     id INT AUTO_INCREMENT PRIMARY KEY,
     property_id INT NOT NULL,
     guest_id INT NOT NULL,
     rating INT CHECK (rating >= 1 AND rating <= 5),
     comment TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (property_id) REFERENCES Properties(id) ON DELETE CASCADE,
-    FOREIGN KEY (guest_id) REFERENCES Guests(id) ON DELETE CASCADE,
+    FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE,
+    FOREIGN KEY (guest_id) REFERENCES guests(id) ON DELETE CASCADE,
     INDEX idx_property_rev (property_id)
 ) ENGINE=InnoDB;
 
--- 10. Wishlist Table
-CREATE TABLE IF NOT EXISTS Wishlist (
+-- 10. wishlist Table
+CREATE TABLE IF NOT EXISTS wishlist (
     id INT AUTO_INCREMENT PRIMARY KEY,
     guest_id INT NOT NULL,
     property_id INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY unique_wishlist (guest_id, property_id),
-    FOREIGN KEY (guest_id) REFERENCES Guests(id) ON DELETE CASCADE,
-    FOREIGN KEY (property_id) REFERENCES Properties(id) ON DELETE CASCADE
+    FOREIGN KEY (guest_id) REFERENCES guests(id) ON DELETE CASCADE,
+    FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- 11. Notifications Table
-CREATE TABLE IF NOT EXISTS Notifications (
+-- 11. notifications Table
+CREATE TABLE IF NOT EXISTS notifications (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     message TEXT NOT NULL,
     is_read BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_user_notif (user_id)
 ) ENGINE=InnoDB;
 
--- 12. Receipts Table
-CREATE TABLE IF NOT EXISTS Receipts (
+-- 12. receipts Table
+CREATE TABLE IF NOT EXISTS receipts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     payment_id INT NOT NULL UNIQUE,
     receipt_path VARCHAR(255) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (payment_id) REFERENCES Payments(id) ON DELETE CASCADE
+    FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- 13. Reports Table
-CREATE TABLE IF NOT EXISTS Reports (
+-- 13. reports Table
+CREATE TABLE IF NOT EXISTS reports (
     id INT AUTO_INCREMENT PRIMARY KEY,
     type ENUM('Earnings', 'Analytics', 'Activity', 'Revenue') NOT NULL,
     path VARCHAR(255) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
--- 14. Sessions Table (Used for API authentication state)
-CREATE TABLE IF NOT EXISTS Sessions (
+-- 14. sessions Table (Used for API authentication state)
+CREATE TABLE IF NOT EXISTS sessions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     session_token VARCHAR(255) NOT NULL UNIQUE,
     expires_at TIMESTAMP NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_token (session_token)
 ) ENGINE=InnoDB;
 
--- 15. Complaints Table
-CREATE TABLE IF NOT EXISTS Complaints (
+-- 15. complaints Table
+CREATE TABLE IF NOT EXISTS complaints (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     subject VARCHAR(200) NOT NULL,
@@ -202,23 +202,23 @@ CREATE TABLE IF NOT EXISTS Complaints (
     admin_response TEXT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_status (status)
 ) ENGINE=InnoDB;
 
--- Ensure Properties table has image_url and property_type columns
-ALTER TABLE Properties ADD COLUMN IF NOT EXISTS image_url VARCHAR(500) NULL AFTER description;
-ALTER TABLE Properties ADD COLUMN IF NOT EXISTS property_type ENUM('Apartment', 'House', 'Villa') DEFAULT 'House' AFTER image_url;
-ALTER TABLE Properties ADD COLUMN IF NOT EXISTS bedrooms INT DEFAULT 1 AFTER max_guests;
-ALTER TABLE Properties ADD COLUMN IF NOT EXISTS bathrooms INT DEFAULT 1 AFTER bedrooms;
-ALTER TABLE Properties ADD COLUMN IF NOT EXISTS beds INT DEFAULT 1 AFTER bathrooms;
-ALTER TABLE Properties ADD COLUMN IF NOT EXISTS property_size INT DEFAULT 0 AFTER beds;
-ALTER TABLE Properties ADD COLUMN IF NOT EXISTS nearby_location VARCHAR(200) DEFAULT '' AFTER property_size;
+-- Ensure properties table has image_url and property_type columns
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS image_url VARCHAR(500) NULL AFTER description;
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS property_type ENUM('Apartment', 'House', 'Villa') DEFAULT 'House' AFTER image_url;
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS bedrooms INT DEFAULT 1 AFTER max_guests;
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS bathrooms INT DEFAULT 1 AFTER bedrooms;
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS beds INT DEFAULT 1 AFTER bathrooms;
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS property_size INT DEFAULT 0 AFTER beds;
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS nearby_location VARCHAR(200) DEFAULT '' AFTER property_size;
 
--- Ensure Hosts table has gender, phone, city columns
-ALTER TABLE Hosts ADD COLUMN IF NOT EXISTS gender VARCHAR(20) DEFAULT '' AFTER is_approved;
-ALTER TABLE Hosts ADD COLUMN IF NOT EXISTS phone VARCHAR(20) DEFAULT '' AFTER gender;
-ALTER TABLE Hosts ADD COLUMN IF NOT EXISTS city VARCHAR(100) DEFAULT '' AFTER phone;
+-- Ensure hosts table has gender, phone, city columns
+ALTER TABLE hosts ADD COLUMN IF NOT EXISTS gender VARCHAR(20) DEFAULT '' AFTER is_approved;
+ALTER TABLE hosts ADD COLUMN IF NOT EXISTS phone VARCHAR(20) DEFAULT '' AFTER gender;
+ALTER TABLE hosts ADD COLUMN IF NOT EXISTS city VARCHAR(100) DEFAULT '' AFTER phone;
 """
 
 def init_db_schema():
@@ -250,7 +250,7 @@ def seed_demo_users():
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
         existing_emails = set()
-        cursor.execute("SELECT email FROM Users WHERE email IN (%s, %s, %s)",
+        cursor.execute("SELECT email FROM users WHERE email IN (%s, %s, %s)",
                        (demo_users[0]['email'], demo_users[1]['email'], demo_users[2]['email']))
         for row in cursor.fetchall():
             existing_emails.add(row[0])
@@ -268,16 +268,16 @@ def seed_demo_users():
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO Users (name, email, password_hash, salt, role) VALUES (%s, %s, %s, %s, %s)",
+                "INSERT INTO users (name, email, password_hash, salt, role) VALUES (%s, %s, %s, %s, %s)",
                 (user['name'], user['email'], pw_hash, salt, user['role'])
             )
             user_id = cursor.lastrowid
             if user['role'] == 'Guest':
-                cursor.execute("INSERT INTO Guests (user_id) VALUES (%s)", (user_id,))
+                cursor.execute("INSERT INTO guests (user_id) VALUES (%s)", (user_id,))
             elif user['role'] == 'Host':
-                cursor.execute("INSERT INTO Hosts (user_id) VALUES (%s)", (user_id,))
+                cursor.execute("INSERT INTO hosts (user_id) VALUES (%s)", (user_id,))
             elif user['role'] == 'Admin':
-                cursor.execute("INSERT INTO Admins (user_id) VALUES (%s)", (user_id,))
+                cursor.execute("INSERT INTO admins (user_id) VALUES (%s)", (user_id,))
             conn.commit()
             cursor.close()
             conn.close()
@@ -289,7 +289,7 @@ def seed_demo_users():
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
         cursor.execute("""
-            UPDATE Hosts h JOIN Users u ON h.user_id = u.id
+            UPDATE hosts h JOIN users u ON h.user_id = u.id
             SET h.is_approved = TRUE, h.gender = 'Female', h.phone = '9876543210', h.city = 'Mumbai'
             WHERE u.email = 'host@stayspace.com' AND u.role = 'Host'
         """)
@@ -313,8 +313,8 @@ def _require_admin(token: str):
     cursor.execute(
         """
         SELECT u.id, u.name, u.email, u.role
-        FROM Sessions s
-        JOIN Users u ON s.user_id = u.id
+        FROM sessions s
+        JOIN users u ON s.user_id = u.id
         WHERE s.session_token = %s
           AND s.expires_at > NOW()
           AND u.role = 'Admin'
@@ -353,9 +353,9 @@ def _require_host(token: str):
                COALESCE(h.gender, '') AS gender,
                COALESCE(h.phone, '') AS phone,
                COALESCE(h.city, '') AS city
-        FROM Sessions s
-        JOIN Users u ON s.user_id = u.id
-        JOIN Hosts h ON h.user_id = u.id
+        FROM sessions s
+        JOIN users u ON s.user_id = u.id
+        JOIN hosts h ON h.user_id = u.id
         WHERE s.session_token = %s
           AND s.expires_at > NOW()
           AND u.role = 'Host'
@@ -393,9 +393,9 @@ def _require_guest(token: str):
         """
         SELECT u.id, u.name, u.email, u.role, u.profile_picture,
                g.id AS guest_id
-        FROM Sessions s
-        JOIN Users u ON s.user_id = u.id
-        JOIN Guests g ON g.user_id = u.id
+        FROM sessions s
+        JOIN users u ON s.user_id = u.id
+        JOIN guests g ON g.user_id = u.id
         WHERE s.session_token = %s
           AND s.expires_at > NOW()
           AND u.role = 'Guest'
@@ -513,7 +513,7 @@ def create_app() -> Flask:
                 conn = mysql.connector.connect(**DB_CONFIG)
                 cursor = conn.cursor(dictionary=True)
                 cursor.execute(
-                    "SELECT h.id FROM Hosts h JOIN Users u ON h.user_id = u.id WHERE h.phone = %s",
+                    "SELECT h.id FROM hosts h JOIN users u ON h.user_id = u.id WHERE h.phone = %s",
                     (phone,)
                 )
                 existing = cursor.fetchone()
@@ -532,7 +532,7 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
 
-            cursor.execute("SELECT id FROM Users WHERE email = %s", (email,))
+            cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
             if cursor.fetchone():
                 cursor.close()
                 conn.close()
@@ -541,20 +541,20 @@ def create_app() -> Flask:
             salt = generate_salt()
             pw_hash = hash_password(password, salt)
             cursor.execute(
-                "INSERT INTO Users (name, email, password_hash, salt, role) VALUES (%s, %s, %s, %s, %s)",
+                "INSERT INTO users (name, email, password_hash, salt, role) VALUES (%s, %s, %s, %s, %s)",
                 (name, email, pw_hash, salt, role)
             )
             user_id = cursor.lastrowid
 
             if role == 'Guest':
-                cursor.execute("INSERT INTO Guests (user_id) VALUES (%s)", (user_id,))
+                cursor.execute("INSERT INTO guests (user_id) VALUES (%s)", (user_id,))
             elif role == 'Host':
                 cursor.execute(
-                    "INSERT INTO Hosts (user_id, gender, phone, city) VALUES (%s, %s, %s, %s)",
+                    "INSERT INTO hosts (user_id, gender, phone, city) VALUES (%s, %s, %s, %s)",
                     (user_id, gender, phone, city)
                 )
             elif role == 'Admin':
-                cursor.execute("INSERT INTO Admins (user_id) VALUES (%s)", (user_id,))
+                cursor.execute("INSERT INTO admins (user_id) VALUES (%s)", (user_id,))
 
             conn.commit()
 
@@ -564,11 +564,11 @@ def create_app() -> Flask:
                 token = secrets.token_urlsafe(32)
                 expires = datetime.utcnow() + timedelta(days=7)
                 cursor.execute(
-                    "INSERT INTO Sessions (user_id, session_token, expires_at) VALUES (%s, %s, %s)",
+                    "INSERT INTO sessions (user_id, session_token, expires_at) VALUES (%s, %s, %s)",
                     (user_id, token, expires)
                 )
                 conn.commit()
-                cursor.execute("SELECT id, is_approved, gender, phone, city FROM Hosts WHERE user_id = %s", (user_id,))
+                cursor.execute("SELECT id, is_approved, gender, phone, city FROM hosts WHERE user_id = %s", (user_id,))
                 host_row = cursor.fetchone()
                 cursor.close()
                 conn.close()
@@ -602,7 +602,7 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT h.id FROM Hosts h WHERE h.phone = %s",
+                "SELECT h.id FROM hosts h WHERE h.phone = %s",
                 (phone,)
             )
             existing = cursor.fetchone()
@@ -626,7 +626,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT id, name, email, password_hash, salt, role, profile_picture FROM Users WHERE email = %s", (email,))
+            cursor.execute("SELECT id, name, email, password_hash, salt, role, profile_picture FROM users WHERE email = %s", (email,))
             user = cursor.fetchone()
             if not user:
                 cursor.close()
@@ -641,7 +641,7 @@ def create_app() -> Flask:
             token = secrets.token_urlsafe(32)
             expires = datetime.utcnow() + timedelta(days=7)
             cursor.execute(
-                "INSERT INTO Sessions (user_id, session_token, expires_at) VALUES (%s, %s, %s)",
+                "INSERT INTO sessions (user_id, session_token, expires_at) VALUES (%s, %s, %s)",
                 (user['id'], token, expires)
             )
             conn.commit()
@@ -675,7 +675,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM Sessions WHERE session_token = %s", (token,))
+            cursor.execute("DELETE FROM sessions WHERE session_token = %s", (token,))
             conn.commit()
             cursor.close()
             conn.close()
@@ -695,8 +695,8 @@ def create_app() -> Flask:
             cursor.execute("""
                 SELECT u.id, u.name, u.email, u.role, u.profile_picture,
                        s.expires_at
-                FROM Sessions s
-                JOIN Users u ON s.user_id = u.id
+                FROM sessions s
+                JOIN users u ON s.user_id = u.id
                 WHERE s.session_token = %s AND s.expires_at > NOW()
             """, (token,))
             row = cursor.fetchone()
@@ -734,8 +734,8 @@ def create_app() -> Flask:
             cursor = conn.cursor(dictionary=True)
             cursor.execute("""
                 SELECT u.id, u.password_hash, u.salt
-                FROM Sessions s
-                JOIN Users u ON s.user_id = u.id
+                FROM sessions s
+                JOIN users u ON s.user_id = u.id
                 WHERE s.session_token = %s AND s.expires_at > NOW()
             """, (token,))
             user = cursor.fetchone()
@@ -751,7 +751,7 @@ def create_app() -> Flask:
 
             new_salt = generate_salt()
             new_hash = hash_password(new_password, new_salt)
-            cursor.execute("UPDATE Users SET password_hash = %s, salt = %s WHERE id = %s",
+            cursor.execute("UPDATE users SET password_hash = %s, salt = %s WHERE id = %s",
                            (new_hash, new_salt, user['id']))
             conn.commit()
             cursor.close()
@@ -771,7 +771,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            cursor.execute("SELECT id FROM Users WHERE email = %s", (email,))
+            cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
             user = cursor.fetchone()
             cursor.close()
             conn.close()
@@ -804,7 +804,7 @@ def create_app() -> Flask:
             cursor = conn.cursor()
             
             # Check if user exists
-            cursor.execute("SELECT id FROM Users WHERE email = %s", (email,))
+            cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
             user = cursor.fetchone()
             
             if not user:
@@ -817,7 +817,7 @@ def create_app() -> Flask:
             password_hash = hash_password(new_password, salt)
             
             cursor.execute(
-                "UPDATE Users SET password_hash = %s, salt = %s WHERE email = %s",
+                "UPDATE users SET password_hash = %s, salt = %s WHERE email = %s",
                 (password_hash, salt, email)
             )
             
@@ -847,9 +847,9 @@ def create_app() -> Flask:
             cursor = conn.cursor(dictionary=True)
             cursor.execute("""
                 SELECT h.id AS host_id, h.is_approved
-                FROM Sessions s
-                JOIN Users u ON s.user_id = u.id
-                JOIN Hosts h ON h.user_id = u.id
+                FROM sessions s
+                JOIN users u ON s.user_id = u.id
+                JOIN hosts h ON h.user_id = u.id
                 WHERE s.session_token = %s AND s.expires_at > NOW() AND u.role = 'Host'
             """, (token,))
             host = cursor.fetchone()
@@ -882,7 +882,7 @@ def create_app() -> Flask:
                 return jsonify({"status": "error", "message": "Title is required"}), 400
 
             cursor.execute("""
-                INSERT INTO Properties
+                INSERT INTO properties
                 (host_id, title, description, image_url, property_type, address,
                  price_per_night, max_guests, bedrooms, bathrooms, beds, property_size, nearby_location)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -892,7 +892,7 @@ def create_app() -> Flask:
 
             for amenity in amenities:
                 if amenity:
-                    cursor.execute("INSERT INTO Amenities (property_id, name) VALUES (%s, %s)",
+                    cursor.execute("INSERT INTO amenities (property_id, name) VALUES (%s, %s)",
                                    (property_id, amenity))
 
             conn.commit()
@@ -942,8 +942,8 @@ def create_app() -> Flask:
 
             count_sql = f"""
                 SELECT COUNT(DISTINCT p.id) AS total
-                FROM Properties p
-                LEFT JOIN Reviews r ON r.property_id = p.id
+                FROM properties p
+                LEFT JOIN reviews r ON r.property_id = p.id
                 WHERE {where_sql}
             """
             cursor.execute(count_sql, params)
@@ -957,8 +957,8 @@ def create_app() -> Flask:
                        p.bedrooms, p.bathrooms, p.beds, p.property_size, p.nearby_location,
                        COALESCE(AVG(r.rating), 0) AS average_rating,
                        COUNT(DISTINCT r.id) AS review_count
-                FROM Properties p
-                LEFT JOIN Reviews r ON r.property_id = p.id
+                FROM properties p
+                LEFT JOIN reviews r ON r.property_id = p.id
                 WHERE {where_sql}
                 GROUP BY p.id ORDER BY p.id DESC
                 LIMIT %s OFFSET %s
@@ -988,8 +988,8 @@ def create_app() -> Flask:
                        p.bedrooms, p.bathrooms, p.beds, p.property_size, p.nearby_location,
                        COALESCE(AVG(r.rating), 0) AS average_rating,
                        COUNT(DISTINCT r.id) AS review_count
-                FROM Properties p
-                LEFT JOIN Reviews r ON r.property_id = p.id
+                FROM properties p
+                LEFT JOIN reviews r ON r.property_id = p.id
                 WHERE p.id = %s
                 GROUP BY p.id
                 """,
@@ -1005,15 +1005,15 @@ def create_app() -> Flask:
             prop['review_count'] = int(prop['review_count'])
             prop['created_at'] = str(prop['created_at'])
 
-            cursor.execute("SELECT name FROM Amenities WHERE property_id = %s", (property_id,))
+            cursor.execute("SELECT name FROM amenities WHERE property_id = %s", (property_id,))
             prop['amenities'] = [row['name'] for row in cursor.fetchall()]
 
             cursor.execute(
                 """
                 SELECT u.name AS guest_name, rv.rating, rv.comment, rv.created_at
-                FROM Reviews rv
-                JOIN Guests g ON g.id = rv.guest_id
-                JOIN Users u ON u.id = g.user_id
+                FROM reviews rv
+                JOIN guests g ON g.id = rv.guest_id
+                JOIN users u ON u.id = g.user_id
                 WHERE rv.property_id = %s
                 ORDER BY rv.created_at DESC LIMIT 10
                 """,
@@ -1030,9 +1030,9 @@ def create_app() -> Flask:
                 try:
                     cursor.execute(
                         """
-                        SELECT 1 FROM Bookings b
-                        JOIN Guests g ON g.id = b.guest_id
-                        JOIN Sessions s ON s.user_id = g.user_id
+                        SELECT 1 FROM bookings b
+                        JOIN guests g ON g.id = b.guest_id
+                        JOIN sessions s ON s.user_id = g.user_id
                         WHERE b.property_id = %s
                           AND b.status IN ('Confirmed', 'Checked-In', 'Completed')
                           AND s.session_token = %s
@@ -1049,9 +1049,9 @@ def create_app() -> Flask:
                 cursor.execute(
                     """
                     SELECT u.name, u.email, h.bio, h.phone, h.city
-                    FROM Hosts h
-                    JOIN Users u ON u.id = h.user_id
-                    JOIN Properties p ON p.host_id = h.id
+                    FROM hosts h
+                    JOIN users u ON u.id = h.user_id
+                    JOIN properties p ON p.host_id = h.id
                     WHERE p.id = %s
                     """,
                     (property_id,)
@@ -1079,9 +1079,9 @@ def create_app() -> Flask:
             cursor = conn.cursor(dictionary=True)
             cursor.execute("""
                 SELECT h.id AS host_id
-                FROM Sessions s
-                JOIN Users u ON s.user_id = u.id
-                JOIN Hosts h ON h.user_id = u.id
+                FROM sessions s
+                JOIN users u ON s.user_id = u.id
+                JOIN hosts h ON h.user_id = u.id
                 WHERE s.session_token = %s AND s.expires_at > NOW() AND u.role = 'Host'
             """, (token,))
             host = cursor.fetchone()
@@ -1094,7 +1094,7 @@ def create_app() -> Flask:
                 SELECT p.id, p.title, p.description, p.image_url, p.property_type,
                        p.address, p.price_per_night, p.max_guests, p.created_at,
                        p.bedrooms, p.bathrooms, p.beds, p.property_size, p.nearby_location
-                FROM Properties p
+                FROM properties p
                 WHERE p.host_id = %s
                 ORDER BY p.created_at DESC
             """, (host['host_id'],))
@@ -1103,7 +1103,7 @@ def create_app() -> Flask:
             for prop in properties:
                 if prop.get('created_at'):
                     prop['created_at'] = str(prop['created_at'])
-                cursor.execute("SELECT name FROM Amenities WHERE property_id = %s", (prop['id'],))
+                cursor.execute("SELECT name FROM amenities WHERE property_id = %s", (prop['id'],))
                 prop['amenities'] = [a['name'] for a in cursor.fetchall()]
 
             cursor.close()
@@ -1132,12 +1132,12 @@ def create_app() -> Flask:
                 return list(row.values())[0] if row else 0
 
             total_properties = scalar(
-                "SELECT COUNT(*) AS count FROM Properties WHERE host_id = %s", (host_id,)
+                "SELECT COUNT(*) AS count FROM properties WHERE host_id = %s", (host_id,)
             )
             total_bookings = scalar(
                 """
-                SELECT COUNT(*) AS count FROM Bookings b
-                JOIN Properties p ON p.id = b.property_id
+                SELECT COUNT(*) AS count FROM bookings b
+                JOIN properties p ON p.id = b.property_id
                 WHERE p.host_id = %s AND b.status != 'Cancelled'
                 """,
                 (host_id,)
@@ -1145,9 +1145,9 @@ def create_app() -> Flask:
             monthly_earnings = float(scalar(
                 """
                 SELECT COALESCE(SUM(pay.amount), 0) AS total
-                FROM Payments pay
-                JOIN Bookings b ON b.id = pay.booking_id
-                JOIN Properties p ON p.id = b.property_id
+                FROM payments pay
+                JOIN bookings b ON b.id = pay.booking_id
+                JOIN properties p ON p.id = b.property_id
                 WHERE p.host_id = %s AND pay.status = 'Success'
                   AND MONTH(pay.created_at) = MONTH(CURRENT_DATE())
                   AND YEAR(pay.created_at) = YEAR(CURRENT_DATE())
@@ -1157,9 +1157,9 @@ def create_app() -> Flask:
             last_month_earnings = float(scalar(
                 """
                 SELECT COALESCE(SUM(pay.amount), 0) AS total
-                FROM Payments pay
-                JOIN Bookings b ON b.id = pay.booking_id
-                JOIN Properties p ON p.id = b.property_id
+                FROM payments pay
+                JOIN bookings b ON b.id = pay.booking_id
+                JOIN properties p ON p.id = b.property_id
                 WHERE p.host_id = %s AND pay.status = 'Success'
                   AND MONTH(pay.created_at) = MONTH(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))
                   AND YEAR(pay.created_at) = YEAR(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))
@@ -1169,8 +1169,8 @@ def create_app() -> Flask:
             avg_rating = float(scalar(
                 """
                 SELECT COALESCE(AVG(r.rating), 0) AS avg_rating
-                FROM Reviews r
-                JOIN Properties p ON p.id = r.property_id
+                FROM reviews r
+                JOIN properties p ON p.id = r.property_id
                 WHERE p.host_id = %s
                 """,
                 (host_id,)
@@ -1178,8 +1178,8 @@ def create_app() -> Flask:
             prev_avg_rating = float(scalar(
                 """
                 SELECT COALESCE(AVG(r.rating), 0) AS avg_rating
-                FROM Reviews r
-                JOIN Properties p ON p.id = r.property_id
+                FROM reviews r
+                JOIN properties p ON p.id = r.property_id
                 WHERE p.host_id = %s
                   AND r.created_at < DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
                 """,
@@ -1187,7 +1187,7 @@ def create_app() -> Flask:
             ))
             properties_this_month = scalar(
                 """
-                SELECT COUNT(*) AS count FROM Properties
+                SELECT COUNT(*) AS count FROM properties
                 WHERE host_id = %s
                   AND MONTH(created_at) = MONTH(CURRENT_DATE())
                   AND YEAR(created_at) = YEAR(CURRENT_DATE())
@@ -1196,8 +1196,8 @@ def create_app() -> Flask:
             )
             bookings_this_month = scalar(
                 """
-                SELECT COUNT(*) AS count FROM Bookings b
-                JOIN Properties p ON p.id = b.property_id
+                SELECT COUNT(*) AS count FROM bookings b
+                JOIN properties p ON p.id = b.property_id
                 WHERE p.host_id = %s AND b.status != 'Cancelled'
                   AND MONTH(b.created_at) = MONTH(CURRENT_DATE())
                   AND YEAR(b.created_at) = YEAR(CURRENT_DATE())
@@ -1205,7 +1205,7 @@ def create_app() -> Flask:
                 (host_id,)
             )
             unread_notifications = scalar(
-                "SELECT COUNT(*) AS count FROM Notifications WHERE user_id = %s AND is_read = FALSE",
+                "SELECT COUNT(*) AS count FROM notifications WHERE user_id = %s AND is_read = FALSE",
                 (host["id"],)
             )
 
@@ -1255,10 +1255,10 @@ def create_app() -> Flask:
                        COUNT(DISTINCT r.id) AS review_count,
                        COUNT(DISTINCT CASE WHEN b.status != 'Cancelled' THEN b.id END) AS bookings,
                        COALESCE(SUM(CASE WHEN pay.status = 'Success' THEN pay.amount ELSE 0 END), 0) AS earnings
-                FROM Properties p
-                LEFT JOIN Reviews r ON r.property_id = p.id
-                LEFT JOIN Bookings b ON b.property_id = p.id
-                LEFT JOIN Payments pay ON pay.booking_id = b.id
+                FROM properties p
+                LEFT JOIN reviews r ON r.property_id = p.id
+                LEFT JOIN bookings b ON b.property_id = p.id
+                LEFT JOIN payments pay ON pay.booking_id = b.id
                 WHERE p.host_id = %s
                 GROUP BY p.id, p.title, p.image_url, p.property_type, p.address, p.price_per_night, p.max_guests, p.created_at
                 ORDER BY p.id DESC
@@ -1274,7 +1274,7 @@ def create_app() -> Flask:
                 prop["created_at"] = str(prop["created_at"])
                 cursor.execute(
                     """
-                    SELECT COUNT(*) AS active FROM Bookings
+                    SELECT COUNT(*) AS active FROM bookings
                     WHERE property_id = %s AND status = 'Confirmed'
                       AND check_out >= CURRENT_DATE()
                     """,
@@ -1288,7 +1288,7 @@ def create_app() -> Flask:
                         LEAST(check_out, LAST_DAY(CURRENT_DATE())),
                         GREATEST(check_in, DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01'))
                     ) + 1), 0) AS booked_days
-                    FROM Bookings
+                    FROM bookings
                     WHERE property_id = %s AND status != 'Cancelled'
                       AND check_in <= LAST_DAY(CURRENT_DATE())
                       AND check_out >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
@@ -1327,11 +1327,11 @@ def create_app() -> Flask:
                        guest_user.name AS guest_name, guest_user.email AS guest_email,
                        guest_user.profile_picture AS guest_avatar,
                        pay.payment_method, pay.transaction_id, pay.amount AS payment_amount
-                FROM Bookings b
-                JOIN Properties p ON p.id = b.property_id
-                JOIN Guests g ON g.id = b.guest_id
-                JOIN Users guest_user ON guest_user.id = g.user_id
-                LEFT JOIN Payments pay ON pay.booking_id = b.id
+                FROM bookings b
+                JOIN properties p ON p.id = b.property_id
+                JOIN guests g ON g.id = b.guest_id
+                JOIN users guest_user ON guest_user.id = g.user_id
+                LEFT JOIN payments pay ON pay.booking_id = b.id
                 WHERE p.host_id = %s
                 ORDER BY b.created_at DESC
                 LIMIT 50
@@ -1374,10 +1374,10 @@ def create_app() -> Flask:
                        guest_user.name AS guest_name,
                        guest_user.email AS guest_email,
                        guest_user.profile_picture AS guest_avatar
-                FROM Bookings b
-                JOIN Properties p ON p.id = b.property_id
-                JOIN Guests g ON g.id = b.guest_id
-                JOIN Users guest_user ON guest_user.id = g.user_id
+                FROM bookings b
+                JOIN properties p ON p.id = b.property_id
+                JOIN guests g ON g.id = b.guest_id
+                JOIN users guest_user ON guest_user.id = g.user_id
                 WHERE p.host_id = %s
                   AND b.status = 'Confirmed'
                   AND b.check_in >= CURRENT_DATE()
@@ -1414,10 +1414,10 @@ def create_app() -> Flask:
                        p.title AS property_title,
                        guest_user.name AS guest_name,
                        guest_user.profile_picture AS guest_avatar
-                FROM Reviews r
-                JOIN Properties p ON p.id = r.property_id
-                JOIN Guests g ON g.id = r.guest_id
-                JOIN Users guest_user ON guest_user.id = g.user_id
+                FROM reviews r
+                JOIN properties p ON p.id = r.property_id
+                JOIN guests g ON g.id = r.guest_id
+                JOIN users guest_user ON guest_user.id = g.user_id
                 WHERE p.host_id = %s
                 ORDER BY r.created_at DESC
                 LIMIT 10
@@ -1452,29 +1452,29 @@ def create_app() -> Flask:
                     m.month_start,
                     COALESCE((
                         SELECT SUM(pay.amount)
-                        FROM Payments pay
-                        JOIN Bookings b ON b.id = pay.booking_id
-                        JOIN Properties p ON p.id = b.property_id
+                        FROM payments pay
+                        JOIN bookings b ON b.id = pay.booking_id
+                        JOIN properties p ON p.id = b.property_id
                         WHERE p.host_id = %s AND pay.status = 'Success'
                           AND DATE_FORMAT(pay.created_at, '%Y-%m') = DATE_FORMAT(m.month_start, '%Y-%m')
                     ), 0) AS earnings,
                     COALESCE((
                         SELECT COUNT(*)
-                        FROM Bookings b
-                        JOIN Properties p ON p.id = b.property_id
+                        FROM bookings b
+                        JOIN properties p ON p.id = b.property_id
                         WHERE p.host_id = %s AND b.status != 'Cancelled'
                           AND DATE_FORMAT(b.created_at, '%Y-%m') = DATE_FORMAT(m.month_start, '%Y-%m')
                     ), 0) AS bookings,
                     COALESCE((
                         SELECT ROUND(AVG(
                             LEAST(100, GREATEST(0,
-                                (SELECT COUNT(*) FROM Bookings bx
+                                (SELECT COUNT(*) FROM bookings bx
                                  WHERE bx.property_id = p2.id AND bx.status != 'Cancelled'
                                    AND DATE_FORMAT(bx.created_at, '%Y-%m') = DATE_FORMAT(m.month_start, '%Y-%m')
                                 ) * 10
                             ))
                         ), 0)
-                        FROM Properties p2 WHERE p2.host_id = %s
+                        FROM properties p2 WHERE p2.host_id = %s
                     ), 0) AS occupancy
                 FROM (
                     SELECT DATE_SUB(DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01'), INTERVAL seq MONTH) AS month_start
@@ -1517,16 +1517,16 @@ def create_app() -> Flask:
                 return list(row.values())[0] if row else 0
 
             stats = {
-                "total_users": scalar("SELECT COUNT(*) AS count FROM Users"),
-                "total_guests": scalar("SELECT COUNT(*) AS count FROM Guests"),
-                "total_hosts": scalar("SELECT COUNT(*) AS count FROM Hosts"),
-                "active_hosts": scalar("SELECT COUNT(*) AS count FROM Hosts WHERE is_approved = TRUE"),
-                "pending_hosts": scalar("SELECT COUNT(*) AS count FROM Hosts WHERE is_approved = FALSE"),
-                "total_properties": scalar("SELECT COUNT(*) AS count FROM Properties"),
-                "total_bookings": scalar("SELECT COUNT(*) AS count FROM Bookings"),
-                "active_bookings": scalar("SELECT COUNT(*) AS count FROM Bookings WHERE status != 'Cancelled'"),
-                "total_revenue": float(scalar("SELECT COALESCE(SUM(amount), 0) AS total FROM Payments WHERE status = 'Success'")),
-                "total_reviews": scalar("SELECT COUNT(*) AS count FROM Reviews")
+                "total_users": scalar("SELECT COUNT(*) AS count FROM users"),
+                "total_guests": scalar("SELECT COUNT(*) AS count FROM guests"),
+                "total_hosts": scalar("SELECT COUNT(*) AS count FROM hosts"),
+                "active_hosts": scalar("SELECT COUNT(*) AS count FROM hosts WHERE is_approved = TRUE"),
+                "pending_hosts": scalar("SELECT COUNT(*) AS count FROM hosts WHERE is_approved = FALSE"),
+                "total_properties": scalar("SELECT COUNT(*) AS count FROM properties"),
+                "total_bookings": scalar("SELECT COUNT(*) AS count FROM bookings"),
+                "active_bookings": scalar("SELECT COUNT(*) AS count FROM bookings WHERE status != 'Cancelled'"),
+                "total_revenue": float(scalar("SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE status = 'Success'")),
+                "total_reviews": scalar("SELECT COUNT(*) AS count FROM reviews")
             }
 
             cursor.close()
@@ -1552,9 +1552,9 @@ def create_app() -> Flask:
                        COALESCE(g.bio, '') AS bio,
                        COUNT(DISTINCT b.id) AS bookings,
                        COALESCE(SUM(CASE WHEN b.status != 'Cancelled' THEN b.total_price ELSE 0 END), 0) AS booking_value
-                FROM Users u
-                JOIN Guests g ON g.user_id = u.id
-                LEFT JOIN Bookings b ON b.guest_id = g.id
+                FROM users u
+                JOIN guests g ON g.user_id = u.id
+                LEFT JOIN bookings b ON b.guest_id = g.id
                 GROUP BY u.id, g.id, u.name, u.email, u.created_at, g.bio
                 ORDER BY u.id ASC
                 """
@@ -1590,11 +1590,11 @@ def create_app() -> Flask:
                        COUNT(DISTINCT p.id) AS properties,
                        COUNT(DISTINCT b.id) AS bookings,
                        COALESCE(SUM(CASE WHEN pay.status = 'Success' THEN pay.amount ELSE 0 END), 0) AS revenue
-                FROM Users u
-                JOIN Hosts h ON h.user_id = u.id
-                LEFT JOIN Properties p ON p.host_id = h.id
-                LEFT JOIN Bookings b ON b.property_id = p.id
-                LEFT JOIN Payments pay ON pay.booking_id = b.id
+                FROM users u
+                JOIN hosts h ON h.user_id = u.id
+                LEFT JOIN properties p ON p.host_id = h.id
+                LEFT JOIN bookings b ON b.property_id = p.id
+                LEFT JOIN payments pay ON pay.booking_id = b.id
                 GROUP BY u.id, h.id, u.name, u.email, h.is_approved, h.created_at, h.bio, h.gender, h.phone, h.city
                 ORDER BY h.id ASC
                 """
@@ -1633,11 +1633,11 @@ def create_app() -> Flask:
                        u.name AS host_name, u.email AS host_email,
                        COUNT(DISTINCT b.id) AS bookings,
                        COALESCE(AVG(r.rating), 0) AS average_rating
-                FROM Properties p
-                JOIN Hosts h ON p.host_id = h.id
-                JOIN Users u ON h.user_id = u.id
-                LEFT JOIN Bookings b ON b.property_id = p.id
-                LEFT JOIN Reviews r ON r.property_id = p.id
+                FROM properties p
+                JOIN hosts h ON p.host_id = h.id
+                JOIN users u ON h.user_id = u.id
+                LEFT JOIN bookings b ON b.property_id = p.id
+                LEFT JOIN reviews r ON r.property_id = p.id
                 GROUP BY p.id, p.title, p.address, p.price_per_night, p.max_guests, p.created_at, u.name, u.email
                 ORDER BY p.id DESC
                 """
@@ -1672,13 +1672,13 @@ def create_app() -> Flask:
                        guest_user.name AS guest_name, guest_user.email AS guest_email,
                        host_user.name AS host_name, host_user.email AS host_email,
                        pay.payment_method, pay.transaction_id, pay.amount AS payment_amount
-                FROM Bookings b
-                JOIN Properties p ON p.id = b.property_id
-                JOIN Guests g ON g.id = b.guest_id
-                JOIN Users guest_user ON guest_user.id = g.user_id
-                JOIN Hosts h ON h.id = p.host_id
-                JOIN Users host_user ON host_user.id = h.user_id
-                LEFT JOIN Payments pay ON pay.booking_id = b.id
+                FROM bookings b
+                JOIN properties p ON p.id = b.property_id
+                JOIN guests g ON g.id = b.guest_id
+                JOIN users guest_user ON guest_user.id = g.user_id
+                JOIN hosts h ON h.id = p.host_id
+                JOIN users host_user ON host_user.id = h.user_id
+                LEFT JOIN payments pay ON pay.booking_id = b.id
                 ORDER BY b.id DESC
                 LIMIT 50
                 """
@@ -1716,8 +1716,8 @@ def create_app() -> Flask:
             cursor.execute(
                 """
                 SELECT u.id, u.name, u.email, u.profile_picture, h.bio, h.is_approved, h.created_at
-                FROM Users u
-                JOIN Hosts h ON h.user_id = u.id
+                FROM users u
+                JOIN hosts h ON h.user_id = u.id
                 WHERE u.id = %s
                 """,
                 (host["id"],)
@@ -1745,10 +1745,10 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
             if name:
-                cursor.execute("UPDATE Users SET name = %s WHERE id = %s", (name, host["id"]))
+                cursor.execute("UPDATE users SET name = %s WHERE id = %s", (name, host["id"]))
             if profile_picture:
-                cursor.execute("UPDATE Users SET profile_picture = %s WHERE id = %s", (profile_picture, host["id"]))
-            cursor.execute("UPDATE Hosts SET bio = %s WHERE user_id = %s", (bio, host["id"]))
+                cursor.execute("UPDATE users SET profile_picture = %s WHERE id = %s", (profile_picture, host["id"]))
+            cursor.execute("UPDATE hosts SET bio = %s WHERE user_id = %s", (bio, host["id"]))
             conn.commit()
             cursor.close()
             conn.close()
@@ -1771,7 +1771,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT password_hash, salt FROM Users WHERE id = %s", (host["id"],))
+            cursor.execute("SELECT password_hash, salt FROM users WHERE id = %s", (host["id"],))
             user = cursor.fetchone()
             old_hash = hash_password(old_password, user['salt'])
             if old_hash != user['password_hash']:
@@ -1780,7 +1780,7 @@ def create_app() -> Flask:
                 return jsonify({"status": "error", "message": "Current password is incorrect"}), 400
             new_salt = generate_salt()
             new_hash = hash_password(new_password, new_salt)
-            cursor.execute("UPDATE Users SET password_hash = %s, salt = %s WHERE id = %s", (new_hash, new_salt, host["id"]))
+            cursor.execute("UPDATE users SET password_hash = %s, salt = %s WHERE id = %s", (new_hash, new_salt, host["id"]))
             conn.commit()
             cursor.close()
             conn.close()
@@ -1801,7 +1801,7 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
             cursor.execute(
-                "SELECT id, message, is_read, created_at FROM Notifications WHERE user_id = %s ORDER BY created_at DESC LIMIT 50",
+                "SELECT id, message, is_read, created_at FROM notifications WHERE user_id = %s ORDER BY created_at DESC LIMIT 50",
                 (host["id"],)
             )
             notifications = cursor.fetchall()
@@ -1825,9 +1825,9 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
             if notif_id:
-                cursor.execute("UPDATE Notifications SET is_read = TRUE WHERE id = %s AND user_id = %s", (notif_id, host["id"]))
+                cursor.execute("UPDATE notifications SET is_read = TRUE WHERE id = %s AND user_id = %s", (notif_id, host["id"]))
             else:
-                cursor.execute("UPDATE Notifications SET is_read = TRUE WHERE user_id = %s", (host["id"],))
+                cursor.execute("UPDATE notifications SET is_read = TRUE WHERE user_id = %s", (host["id"],))
             conn.commit()
             cursor.close()
             conn.close()
@@ -1847,7 +1847,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM Notifications WHERE id = %s AND user_id = %s", (notif_id, host["id"]))
+            cursor.execute("DELETE FROM notifications WHERE id = %s AND user_id = %s", (notif_id, host["id"]))
             conn.commit()
             cursor.close()
             conn.close()
@@ -1870,35 +1870,35 @@ def create_app() -> Flask:
             cursor = conn.cursor(dictionary=True)
 
             total = float((lambda q: (cursor.execute(q, (host_id,)) or True) and (cursor.fetchone() or {}).get('total', 0))(
-                "SELECT COALESCE(SUM(pay.amount), 0) AS total FROM Payments pay "
-                "JOIN Bookings b ON b.id = pay.booking_id JOIN Properties p ON p.id = b.property_id "
+                "SELECT COALESCE(SUM(pay.amount), 0) AS total FROM payments pay "
+                "JOIN bookings b ON b.id = pay.booking_id JOIN properties p ON p.id = b.property_id "
                 "WHERE p.host_id = %s AND pay.status = 'Success'"
             ))
             this_month = float((lambda q: (cursor.execute(q, (host_id,)) or True) and (cursor.fetchone() or {}).get('total', 0))(
-                "SELECT COALESCE(SUM(pay.amount), 0) AS total FROM Payments pay "
-                "JOIN Bookings b ON b.id = pay.booking_id JOIN Properties p ON p.id = b.property_id "
+                "SELECT COALESCE(SUM(pay.amount), 0) AS total FROM payments pay "
+                "JOIN bookings b ON b.id = pay.booking_id JOIN properties p ON p.id = b.property_id "
                 "WHERE p.host_id = %s AND pay.status = 'Success' "
                 "AND MONTH(pay.created_at) = MONTH(CURRENT_DATE()) AND YEAR(pay.created_at) = YEAR(CURRENT_DATE())"
             ))
             last_month = float((lambda q: (cursor.execute(q, (host_id,)) or True) and (cursor.fetchone() or {}).get('total', 0))(
-                "SELECT COALESCE(SUM(pay.amount), 0) AS total FROM Payments pay "
-                "JOIN Bookings b ON b.id = pay.booking_id JOIN Properties p ON p.id = b.property_id "
+                "SELECT COALESCE(SUM(pay.amount), 0) AS total FROM payments pay "
+                "JOIN bookings b ON b.id = pay.booking_id JOIN properties p ON p.id = b.property_id "
                 "WHERE p.host_id = %s AND pay.status = 'Success' "
                 "AND MONTH(pay.created_at) = MONTH(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)) "
                 "AND YEAR(pay.created_at) = YEAR(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))"
             ))
             this_year = float((lambda q: (cursor.execute(q, (host_id,)) or True) and (cursor.fetchone() or {}).get('total', 0))(
-                "SELECT COALESCE(SUM(pay.amount), 0) AS total FROM Payments pay "
-                "JOIN Bookings b ON b.id = pay.booking_id JOIN Properties p ON p.id = b.property_id "
+                "SELECT COALESCE(SUM(pay.amount), 0) AS total FROM payments pay "
+                "JOIN bookings b ON b.id = pay.booking_id JOIN properties p ON p.id = b.property_id "
                 "WHERE p.host_id = %s AND pay.status = 'Success' AND YEAR(pay.created_at) = YEAR(CURRENT_DATE())"
             ))
 
             cursor.execute(
                 """
                 SELECT p.title, pay.amount, pay.payment_method, pay.created_at, b.id AS booking_id
-                FROM Payments pay
-                JOIN Bookings b ON b.id = pay.booking_id
-                JOIN Properties p ON p.id = b.property_id
+                FROM payments pay
+                JOIN bookings b ON b.id = pay.booking_id
+                JOIN properties p ON p.id = b.property_id
                 WHERE p.host_id = %s AND pay.status = 'Success'
                 ORDER BY pay.created_at DESC LIMIT 20
                 """,
@@ -1946,13 +1946,13 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO Properties (host_id, title, description, image_url, property_type, address, price_per_night, max_guests) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                "INSERT INTO properties (host_id, title, description, image_url, property_type, address, price_per_night, max_guests) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                 (host["host_id"], title, description, image_url or None, property_type, address, float(price), int(max_guests))
             )
             prop_id = cursor.lastrowid
             for amenity in amenities:
                 if amenity.strip():
-                    cursor.execute("INSERT INTO Amenities (property_id, name) VALUES (%s, %s)", (prop_id, amenity.strip()))
+                    cursor.execute("INSERT INTO amenities (property_id, name) VALUES (%s, %s)", (prop_id, amenity.strip()))
             conn.commit()
             cursor.close()
             conn.close()
@@ -1972,7 +1972,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            cursor.execute("SELECT id FROM Properties WHERE id = %s AND host_id = %s", (prop_id, host["host_id"]))
+            cursor.execute("SELECT id FROM properties WHERE id = %s AND host_id = %s", (prop_id, host["host_id"]))
             if not cursor.fetchone():
                 cursor.close()
                 conn.close()
@@ -2000,12 +2000,12 @@ def create_app() -> Flask:
                     params.append(pt)
             if updates:
                 params.append(prop_id)
-                cursor.execute(f"UPDATE Properties SET {', '.join(updates)} WHERE id = %s", params)
+                cursor.execute(f"UPDATE properties SET {', '.join(updates)} WHERE id = %s", params)
             if 'amenities' in body:
-                cursor.execute("DELETE FROM Amenities WHERE property_id = %s", (prop_id,))
+                cursor.execute("DELETE FROM amenities WHERE property_id = %s", (prop_id,))
                 for amenity in body['amenities']:
                     if amenity.strip():
-                        cursor.execute("INSERT INTO Amenities (property_id, name) VALUES (%s, %s)", (prop_id, amenity.strip()))
+                        cursor.execute("INSERT INTO amenities (property_id, name) VALUES (%s, %s)", (prop_id, amenity.strip()))
             conn.commit()
             cursor.close()
             conn.close()
@@ -2025,7 +2025,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM Properties WHERE id = %s AND host_id = %s", (prop_id, host["host_id"]))
+            cursor.execute("DELETE FROM properties WHERE id = %s AND host_id = %s", (prop_id, host["host_id"]))
             affected = cursor.rowcount
             conn.commit()
             cursor.close()
@@ -2048,8 +2048,8 @@ def create_app() -> Flask:
             cursor.execute(
                 """
                 SELECT p.*, GROUP_CONCAT(a.name) AS amenities_list
-                FROM Properties p
-                LEFT JOIN Amenities a ON a.property_id = p.id
+                FROM properties p
+                LEFT JOIN amenities a ON a.property_id = p.id
                 WHERE p.id = %s AND p.host_id = %s
                 GROUP BY p.id
                 """,
@@ -2087,9 +2087,9 @@ def create_app() -> Flask:
                 SELECT DATE_FORMAT(pay.created_at, '%Y-%m') AS month,
                        COALESCE(SUM(pay.amount), 0) AS revenue,
                        COUNT(DISTINCT b.id) AS bookings
-                FROM Payments pay
-                JOIN Bookings b ON b.id = pay.booking_id
-                JOIN Properties p ON p.id = b.property_id
+                FROM payments pay
+                JOIN bookings b ON b.id = pay.booking_id
+                JOIN properties p ON p.id = b.property_id
                 WHERE p.host_id = %s AND pay.status = 'Success'
                 GROUP BY month ORDER BY month DESC LIMIT 12
                 """,
@@ -2107,10 +2107,10 @@ def create_app() -> Flask:
                        COALESCE(SUM(CASE WHEN pay.status = 'Success' THEN pay.amount ELSE 0 END), 0) AS revenue,
                        COALESCE(AVG(r.rating), 0) AS avg_rating,
                        COUNT(DISTINCT r.id) AS review_count
-                FROM Properties p
-                LEFT JOIN Bookings b ON b.property_id = p.id
-                LEFT JOIN Payments pay ON pay.booking_id = b.id
-                LEFT JOIN Reviews r ON r.property_id = p.id
+                FROM properties p
+                LEFT JOIN bookings b ON b.property_id = p.id
+                LEFT JOIN payments pay ON pay.booking_id = b.id
+                LEFT JOIN reviews r ON r.property_id = p.id
                 WHERE p.host_id = %s
                 GROUP BY p.id, p.title
                 ORDER BY revenue DESC
@@ -2144,7 +2144,7 @@ def create_app() -> Flask:
             cursor.execute(
                 """
                 SELECT check_in, check_out
-                FROM Bookings
+                FROM bookings
                 WHERE property_id = %s AND status IN ('Pending', 'Confirmed', 'Checked-In')
                   AND check_out >= CURRENT_DATE()
                 ORDER BY check_in ASC
@@ -2165,27 +2165,27 @@ def create_app() -> Flask:
     # BOOKING SYSTEM – Guest helpers
     # ──────────────────────────────────────────────
     def _resolve_guest_id(cursor, user_id):
-        cursor.execute("SELECT id FROM Guests WHERE user_id = %s", (user_id,))
+        cursor.execute("SELECT id FROM guests WHERE user_id = %s", (user_id,))
         row = cursor.fetchone()
         if row:
             return row['id']
-        cursor.execute("INSERT INTO Guests (user_id) VALUES (%s)", (user_id,))
+        cursor.execute("INSERT INTO guests (user_id) VALUES (%s)", (user_id,))
         return cursor.lastrowid
 
     def _get_property_owner_user_id(cursor, property_id):
         cursor.execute(
-            "SELECT u.id FROM Properties p JOIN Hosts h ON p.host_id = h.id JOIN Users u ON h.user_id = u.id WHERE p.id = %s",
+            "SELECT u.id FROM properties p JOIN hosts h ON p.host_id = h.id JOIN users u ON h.user_id = u.id WHERE p.id = %s",
             (property_id,)
         )
         row = cursor.fetchone()
         return row['id'] if row else None
 
     def _create_notification(cursor, user_id, message):
-        cursor.execute("INSERT INTO Notifications (user_id, message) VALUES (%s, %s)", (user_id, message))
+        cursor.execute("INSERT INTO notifications (user_id, message) VALUES (%s, %s)", (user_id, message))
 
     def _check_overlap(cursor, property_id, check_in, check_out, exclude_booking_id=None):
         sql = """
-            SELECT COUNT(*) AS cnt FROM Bookings
+            SELECT COUNT(*) AS cnt FROM bookings
             WHERE property_id = %s AND status IN ('Pending', 'Confirmed', 'Checked-In')
               AND check_in < %s AND check_out > %s
         """
@@ -2235,7 +2235,7 @@ def create_app() -> Flask:
             cursor = conn.cursor(dictionary=True)
 
             cursor.execute(
-                "SELECT id, host_id, price_per_night, max_guests FROM Properties WHERE id = %s",
+                "SELECT id, host_id, price_per_night, max_guests FROM properties WHERE id = %s",
                 (property_id,)
             )
             prop = cursor.fetchone()
@@ -2263,7 +2263,7 @@ def create_app() -> Flask:
             guest_id = _resolve_guest_id(cursor, guest['id'])
 
             cursor.execute(
-                """INSERT INTO Bookings (property_id, guest_id, check_in, check_out, total_price, guests_count, special_requests, status)
+                """INSERT INTO bookings (property_id, guest_id, check_in, check_out, total_price, guests_count, special_requests, status)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, 'Pending')""",
                 (property_id, guest_id, check_in, check_out, total_price, guests_count, special_requests or None)
             )
@@ -2272,19 +2272,19 @@ def create_app() -> Flask:
             import uuid as _uuid
             transaction_id = f"TXN-{_uuid.uuid4().hex[:12].upper()}"
             cursor.execute(
-                """INSERT INTO Payments (booking_id, amount, payment_method, status, transaction_id)
+                """INSERT INTO payments (booking_id, amount, payment_method, status, transaction_id)
                    VALUES (%s, %s, %s, 'Success', %s)""",
                 (booking_id, total_price, payment_method, transaction_id)
             )
 
-            cursor.execute("UPDATE Bookings SET status = 'Confirmed' WHERE id = %s", (booking_id,))
+            cursor.execute("UPDATE bookings SET status = 'Confirmed' WHERE id = %s", (booking_id,))
 
             host_user_id = _get_property_owner_user_id(cursor, property_id)
             if host_user_id:
                 _create_notification(cursor, host_user_id,
                     f"New booking #{booking_id}: {guest['name']} booked your property for {check_in} to {check_out}")
 
-            cursor.execute("SELECT id FROM Users WHERE role = 'Admin' LIMIT 1")
+            cursor.execute("SELECT id FROM users WHERE role = 'Admin' LIMIT 1")
             admin_row = cursor.fetchone()
             if admin_row:
                 _create_notification(cursor, admin_row['id'],
@@ -2295,7 +2295,7 @@ def create_app() -> Flask:
 
             cursor.execute(
                 """
-                SELECT p.title FROM Properties p WHERE p.id = %s
+                SELECT p.title FROM properties p WHERE p.id = %s
                 """,
                 (property_id,)
             )
@@ -2343,9 +2343,9 @@ def create_app() -> Flask:
                        p.id AS property_id, p.title AS property_title,
                        p.address AS property_address, p.image_url, p.property_type,
                        pay.payment_method, pay.transaction_id, pay.amount AS payment_amount
-                FROM Bookings b
-                JOIN Properties p ON p.id = b.property_id
-                LEFT JOIN Payments pay ON pay.booking_id = b.id
+                FROM bookings b
+                JOIN properties p ON p.id = b.property_id
+                LEFT JOIN payments pay ON pay.booking_id = b.id
                 WHERE b.guest_id = %s
                 ORDER BY b.created_at DESC
                 """,
@@ -2382,7 +2382,7 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
             cursor.execute(
-                "SELECT id, status, property_id FROM Bookings WHERE id = %s AND guest_id = %s",
+                "SELECT id, status, property_id FROM bookings WHERE id = %s AND guest_id = %s",
                 (booking_id, guest['guest_id'])
             )
             booking = cursor.fetchone()
@@ -2395,7 +2395,7 @@ def create_app() -> Flask:
                 conn.close()
                 return jsonify({"status": "error", "message": f"Cannot cancel a booking with status '{booking['status']}'"}), 400
 
-            cursor.execute("UPDATE Bookings SET status = 'Cancelled' WHERE id = %s", (booking_id,))
+            cursor.execute("UPDATE bookings SET status = 'Cancelled' WHERE id = %s", (booking_id,))
 
             host_user_id = _get_property_owner_user_id(cursor, booking['property_id'])
             if host_user_id:
@@ -2430,7 +2430,7 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
             cursor.execute(
-                "SELECT b.id, b.status, b.guest_id FROM Bookings b JOIN Properties p ON p.id = b.property_id WHERE b.id = %s AND p.host_id = %s",
+                "SELECT b.id, b.status, b.guest_id FROM bookings b JOIN properties p ON p.id = b.property_id WHERE b.id = %s AND p.host_id = %s",
                 (booking_id, host["host_id"])
             )
             booking = cursor.fetchone()
@@ -2458,10 +2458,10 @@ def create_app() -> Flask:
                 conn.close()
                 return jsonify({"status": "error", "message": f"Cannot {action} a booking with status '{booking['status']}'"}), 400
 
-            cursor.execute("UPDATE Bookings SET status = %s WHERE id = %s", (new_status, booking_id))
+            cursor.execute("UPDATE bookings SET status = %s WHERE id = %s", (new_status, booking_id))
 
             guest_user_cursor = conn.cursor(dictionary=True)
-            guest_user_cursor.execute("SELECT user_id FROM Guests WHERE id = %s", (booking['guest_id'],))
+            guest_user_cursor.execute("SELECT user_id FROM guests WHERE id = %s", (booking['guest_id'],))
             guest_user = guest_user_cursor.fetchone()
             guest_user_cursor.close()
 
@@ -2494,9 +2494,9 @@ def create_app() -> Flask:
                        COALESCE(h.gender, '') AS gender,
                        COALESCE(h.phone, '') AS phone,
                        COALESCE(h.city, '') AS city
-                FROM Sessions s
-                JOIN Users u ON s.user_id = u.id
-                JOIN Hosts h ON h.user_id = u.id
+                FROM sessions s
+                JOIN users u ON s.user_id = u.id
+                JOIN hosts h ON h.user_id = u.id
                 WHERE s.session_token = %s AND s.expires_at > NOW() AND u.role = 'Host'
                 """,
                 (token,)
@@ -2532,9 +2532,9 @@ def create_app() -> Flask:
             cursor.execute(
                 """
                 SELECT u.id, u.name, u.email, h.id AS host_id
-                FROM Sessions s
-                JOIN Users u ON s.user_id = u.id
-                JOIN Hosts h ON h.user_id = u.id
+                FROM sessions s
+                JOIN users u ON s.user_id = u.id
+                JOIN hosts h ON h.user_id = u.id
                 WHERE s.session_token = %s AND s.expires_at > NOW() AND u.role = 'Host'
                 """,
                 (token,)
@@ -2545,7 +2545,7 @@ def create_app() -> Flask:
                 conn.close()
                 return jsonify({"status": "error", "message": "Not authenticated"}), 401
 
-            cursor.execute("SELECT id FROM Users WHERE role = 'Admin' LIMIT 1")
+            cursor.execute("SELECT id FROM users WHERE role = 'Admin' LIMIT 1")
             admin = cursor.fetchone()
             if admin:
                 _create_notification(cursor, admin['id'],
@@ -2572,13 +2572,13 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT id, user_id FROM Hosts WHERE id = %s", (host_id,))
+            cursor.execute("SELECT id, user_id FROM hosts WHERE id = %s", (host_id,))
             host = cursor.fetchone()
             if not host:
                 cursor.close()
                 conn.close()
                 return jsonify({"status": "error", "message": "Host not found"}), 404
-            cursor.execute("UPDATE Hosts SET is_approved = TRUE WHERE id = %s", (host_id,))
+            cursor.execute("UPDATE hosts SET is_approved = TRUE WHERE id = %s", (host_id,))
             _create_notification(cursor, host['user_id'],
                 "Congratulations! Your host account has been approved. You can now access the Host Dashboard.")
             conn.commit()
@@ -2600,17 +2600,17 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT id, user_id FROM Hosts WHERE id = %s", (host_id,))
+            cursor.execute("SELECT id, user_id FROM hosts WHERE id = %s", (host_id,))
             host = cursor.fetchone()
             if not host:
                 cursor.close()
                 conn.close()
                 return jsonify({"status": "error", "message": "Host not found"}), 404
-            cursor.execute("DELETE FROM Hosts WHERE id = %s", (host_id,))
-            cursor.execute("UPDATE Users SET role = 'Guest' WHERE id = %s", (host['user_id'],))
-            cursor.execute("SELECT id FROM Guests WHERE user_id = %s", (host['user_id'],))
+            cursor.execute("DELETE FROM hosts WHERE id = %s", (host_id,))
+            cursor.execute("UPDATE users SET role = 'Guest' WHERE id = %s", (host['user_id'],))
+            cursor.execute("SELECT id FROM guests WHERE user_id = %s", (host['user_id'],))
             if not cursor.fetchone():
-                cursor.execute("INSERT INTO Guests (user_id) VALUES (%s)", (host['user_id'],))
+                cursor.execute("INSERT INTO guests (user_id) VALUES (%s)", (host['user_id'],))
             _create_notification(cursor, host['user_id'],
                 "Your host registration was not approved. Your account has been set to Guest.")
             conn.commit()
@@ -2631,8 +2631,8 @@ def create_app() -> Flask:
             cursor = conn.cursor(dictionary=True)
             cursor.execute("""
                 SELECT c.*, u.name AS user_name, u.email AS user_email
-                FROM Complaints c
-                JOIN Users u ON c.user_id = u.id
+                FROM complaints c
+                JOIN users u ON c.user_id = u.id
                 WHERE c.user_id = %s
                 ORDER BY c.created_at DESC
             """, (host['id'],))
@@ -2666,12 +2666,12 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO Complaints (user_id, subject, description) VALUES (%s, %s, %s)",
+                "INSERT INTO complaints (user_id, subject, description) VALUES (%s, %s, %s)",
                 (host['id'], full_subject, description)
             )
             complaint_id = cursor.lastrowid
             try:
-                cursor.execute("SELECT user_id FROM Admins LIMIT 1")
+                cursor.execute("SELECT user_id FROM admins LIMIT 1")
                 admin_row = cursor.fetchone()
                 if admin_row:
                     _create_notification(cursor, admin_row[0], f"New host complaint: {full_subject}")
@@ -2702,41 +2702,41 @@ def create_app() -> Flask:
                 row = cursor.fetchone()
                 return list(row.values())[0] if row else 0
 
-            total_revenue = float(scalar("SELECT COALESCE(SUM(amount), 0) AS total FROM Payments WHERE status = 'Success'"))
+            total_revenue = float(scalar("SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE status = 'Success'"))
             host_revenue = float(scalar("""
-                SELECT COALESCE(SUM(pay.amount), 0) AS total FROM Payments pay
-                JOIN Bookings b ON b.id = pay.booking_id JOIN Properties p ON p.id = b.property_id
+                SELECT COALESCE(SUM(pay.amount), 0) AS total FROM payments pay
+                JOIN bookings b ON b.id = pay.booking_id JOIN properties p ON p.id = b.property_id
                 WHERE pay.status = 'Success'
             """))
-            completed_bookings = scalar("SELECT COUNT(*) AS count FROM Bookings WHERE status = 'Completed'")
-            cancelled_bookings = scalar("SELECT COUNT(*) AS count FROM Bookings WHERE status = 'Cancelled'")
+            completed_bookings = scalar("SELECT COUNT(*) AS count FROM bookings WHERE status = 'Completed'")
+            cancelled_bookings = scalar("SELECT COUNT(*) AS count FROM bookings WHERE status = 'Cancelled'")
             active_properties = scalar("""
-                SELECT COUNT(DISTINCT p.id) FROM Properties p
-                JOIN Hosts h ON p.host_id = h.id WHERE h.is_approved = TRUE
+                SELECT COUNT(DISTINCT p.id) FROM properties p
+                JOIN hosts h ON p.host_id = h.id WHERE h.is_approved = TRUE
             """)
             users_this_month = scalar("""
-                SELECT COUNT(*) FROM Users WHERE role = 'Guest'
+                SELECT COUNT(*) FROM users WHERE role = 'Guest'
                 AND MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())
             """)
             hosts_this_month = scalar("""
-                SELECT COUNT(*) FROM Hosts
+                SELECT COUNT(*) FROM hosts
                 WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())
             """)
             bookings_this_month = scalar("""
-                SELECT COUNT(*) FROM Bookings
+                SELECT COUNT(*) FROM bookings
                 WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())
             """)
             revenue_this_month = float(scalar("""
-                SELECT COALESCE(SUM(amount), 0) FROM Payments WHERE status = 'Success'
+                SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'Success'
                 AND MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())
             """))
-            total_complaints = scalar("SELECT COUNT(*) AS count FROM Complaints")
-            open_complaints = scalar("SELECT COUNT(*) AS count FROM Complaints WHERE status = 'Open'")
+            total_complaints = scalar("SELECT COUNT(*) AS count FROM complaints")
+            open_complaints = scalar("SELECT COUNT(*) AS count FROM complaints WHERE status = 'Open'")
 
             user_growth = []
             cursor.execute("""
                 SELECT DATE_FORMAT(created_at, '%b') AS month_label, COUNT(*) AS count
-                FROM Users WHERE role = 'Guest'
+                FROM users WHERE role = 'Guest'
                 GROUP BY DATE_FORMAT(created_at, '%Y-%m'), month_label
                 ORDER BY DATE_FORMAT(created_at, '%Y-%m') ASC LIMIT 6
             """)
@@ -2746,7 +2746,7 @@ def create_app() -> Flask:
             host_growth = []
             cursor.execute("""
                 SELECT DATE_FORMAT(created_at, '%b') AS month_label, COUNT(*) AS count
-                FROM Hosts
+                FROM hosts
                 GROUP BY DATE_FORMAT(created_at, '%Y-%m'), month_label
                 ORDER BY DATE_FORMAT(created_at, '%Y-%m') ASC LIMIT 6
             """)
@@ -2756,7 +2756,7 @@ def create_app() -> Flask:
             booking_trends = []
             cursor.execute("""
                 SELECT DATE_FORMAT(created_at, '%Y-%m') AS month, COUNT(*) AS count
-                FROM Bookings GROUP BY month ORDER BY month DESC LIMIT 6
+                FROM bookings GROUP BY month ORDER BY month DESC LIMIT 6
             """)
             for row in cursor.fetchall():
                 booking_trends.append({"month": row["month"], "count": int(row["count"])})
@@ -2765,7 +2765,7 @@ def create_app() -> Flask:
             cursor.execute("""
                 SELECT DATE_FORMAT(created_at, '%Y-%m') AS month,
                        COALESCE(SUM(amount), 0) AS revenue
-                FROM Payments WHERE status = 'Success'
+                FROM payments WHERE status = 'Success'
                 GROUP BY month ORDER BY month DESC LIMIT 6
             """)
             for row in cursor.fetchall():
@@ -2773,14 +2773,14 @@ def create_app() -> Flask:
 
             property_type_distribution = []
             cursor.execute("""
-                SELECT property_type, COUNT(*) AS count FROM Properties GROUP BY property_type
+                SELECT property_type, COUNT(*) AS count FROM properties GROUP BY property_type
             """)
             for row in cursor.fetchall():
                 property_type_distribution.append({"type": row["property_type"] or "Unknown", "count": int(row["count"])})
 
             booking_status_distribution = []
             cursor.execute("""
-                SELECT status, COUNT(*) AS count FROM Bookings GROUP BY status
+                SELECT status, COUNT(*) AS count FROM bookings GROUP BY status
             """)
             for row in cursor.fetchall():
                 booking_status_distribution.append({"status": row["status"], "count": int(row["count"])})
@@ -2789,8 +2789,8 @@ def create_app() -> Flask:
             cursor.execute("""
                 SELECT p.property_type, COUNT(*) AS count,
                        COALESCE(AVG(r.rating), 0) AS avg_rating
-                FROM Properties p
-                LEFT JOIN Reviews r ON r.property_id = p.id
+                FROM properties p
+                LEFT JOIN reviews r ON r.property_id = p.id
                 GROUP BY p.property_type
             """)
             for row in cursor.fetchall():
@@ -2807,8 +2807,8 @@ def create_app() -> Flask:
                         DATEDIFF(LEAST(b.check_out, LAST_DAY(CURRENT_DATE())),
                                  GREATEST(b.check_in, DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01'))) + 1
                     ), 0) AS booked_days
-                FROM Properties p
-                LEFT JOIN Bookings b ON b.property_id = p.id AND b.status != 'Cancelled'
+                FROM properties p
+                LEFT JOIN bookings b ON b.property_id = p.id AND b.status != 'Cancelled'
                     AND b.check_in <= LAST_DAY(CURRENT_DATE())
                     AND b.check_out >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
                 GROUP BY p.id, p.title
@@ -2823,7 +2823,7 @@ def create_app() -> Flask:
 
             review_analytics = []
             cursor.execute("""
-                SELECT rating, COUNT(*) AS count FROM Reviews GROUP BY rating ORDER BY rating DESC
+                SELECT rating, COUNT(*) AS count FROM reviews GROUP BY rating ORDER BY rating DESC
             """)
             for row in cursor.fetchall():
                 review_analytics.append({"rating": int(row["rating"]), "count": int(row["count"])})
@@ -2833,8 +2833,8 @@ def create_app() -> Flask:
                 SELECT DATE_FORMAT(pay.created_at, '%b') AS month_label,
                        COALESCE(SUM(pay.amount), 0) AS revenue,
                        COUNT(DISTINCT b.id) AS bookings
-                FROM Payments pay
-                JOIN Bookings b ON b.id = pay.booking_id
+                FROM payments pay
+                JOIN bookings b ON b.id = pay.booking_id
                 WHERE pay.status = 'Success'
                 GROUP BY DATE_FORMAT(pay.created_at, '%Y-%m'), month_label
                 ORDER BY DATE_FORMAT(pay.created_at, '%Y-%m') ASC LIMIT 12
@@ -2847,20 +2847,20 @@ def create_app() -> Flask:
                 })
 
             stats = {
-                "total_users": scalar("SELECT COUNT(*) AS count FROM Users"),
-                "total_guests": scalar("SELECT COUNT(*) AS count FROM Guests"),
-                "total_hosts": scalar("SELECT COUNT(*) AS count FROM Hosts"),
-                "active_hosts": scalar("SELECT COUNT(*) AS count FROM Hosts WHERE is_approved = TRUE"),
-                "pending_hosts": scalar("SELECT COUNT(*) AS count FROM Hosts WHERE is_approved = FALSE"),
-                "total_properties": scalar("SELECT COUNT(*) AS count FROM Properties"),
+                "total_users": scalar("SELECT COUNT(*) AS count FROM users"),
+                "total_guests": scalar("SELECT COUNT(*) AS count FROM guests"),
+                "total_hosts": scalar("SELECT COUNT(*) AS count FROM hosts"),
+                "active_hosts": scalar("SELECT COUNT(*) AS count FROM hosts WHERE is_approved = TRUE"),
+                "pending_hosts": scalar("SELECT COUNT(*) AS count FROM hosts WHERE is_approved = FALSE"),
+                "total_properties": scalar("SELECT COUNT(*) AS count FROM properties"),
                 "active_properties": int(active_properties),
-                "total_bookings": scalar("SELECT COUNT(*) AS count FROM Bookings"),
-                "active_bookings": scalar("SELECT COUNT(*) AS count FROM Bookings WHERE status NOT IN ('Cancelled', 'Completed')"),
+                "total_bookings": scalar("SELECT COUNT(*) AS count FROM bookings"),
+                "active_bookings": scalar("SELECT COUNT(*) AS count FROM bookings WHERE status NOT IN ('Cancelled', 'Completed')"),
                 "completed_bookings": int(completed_bookings),
                 "cancelled_bookings": int(cancelled_bookings),
                 "total_revenue": total_revenue,
                 "host_revenue": host_revenue,
-                "total_reviews": scalar("SELECT COUNT(*) AS count FROM Reviews"),
+                "total_reviews": scalar("SELECT COUNT(*) AS count FROM reviews"),
                 "total_complaints": int(total_complaints),
                 "open_complaints": int(open_complaints),
                 "users_this_month": int(users_this_month),
@@ -2902,13 +2902,13 @@ def create_app() -> Flask:
                        CASE WHEN g.id IS NOT NULL THEN g.id ELSE NULL END AS guest_id,
                        CASE WHEN h.id IS NOT NULL THEN h.id ELSE NULL END AS host_id,
                        CASE WHEN h.is_approved IS NOT NULL THEN h.is_approved ELSE NULL END AS is_approved,
-                       (SELECT COUNT(*) FROM Bookings b WHERE b.guest_id = g.id) AS bookings_count,
+                       (SELECT COUNT(*) FROM bookings b WHERE b.guest_id = g.id) AS bookings_count,
                        (SELECT COALESCE(SUM(CASE WHEN b.status != 'Cancelled' THEN b.total_price ELSE 0 END), 0)
-                        FROM Bookings b WHERE b.guest_id = g.id) AS booking_value,
-                       (SELECT COUNT(*) FROM Properties p WHERE p.host_id = h.id) AS properties_count
-                FROM Users u
-                LEFT JOIN Guests g ON g.user_id = u.id
-                LEFT JOIN Hosts h ON h.user_id = u.id
+                        FROM bookings b WHERE b.guest_id = g.id) AS booking_value,
+                       (SELECT COUNT(*) FROM properties p WHERE p.host_id = h.id) AS properties_count
+                FROM users u
+                LEFT JOIN guests g ON g.user_id = u.id
+                LEFT JOIN hosts h ON h.user_id = u.id
                 ORDER BY u.id ASC
             """)
             users = cursor.fetchall()
@@ -2934,7 +2934,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM Users WHERE id = %s AND role != 'Admin'", (user_id,))
+            cursor.execute("DELETE FROM users WHERE id = %s AND role != 'Admin'", (user_id,))
             affected = cursor.rowcount
             conn.commit()
             cursor.close()
@@ -2960,7 +2960,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM Properties WHERE id = %s", (property_id,))
+            cursor.execute("DELETE FROM properties WHERE id = %s", (property_id,))
             affected = cursor.rowcount
             conn.commit()
             cursor.close()
@@ -2988,11 +2988,11 @@ def create_app() -> Flask:
                        b.id AS booking_id, b.check_in, b.check_out,
                        p.title AS property_title,
                        guest_user.name AS guest_name, guest_user.email AS guest_email
-                FROM Payments pay
-                JOIN Bookings b ON b.id = pay.booking_id
-                JOIN Properties p ON p.id = b.property_id
-                JOIN Guests g ON g.id = b.guest_id
-                JOIN Users guest_user ON guest_user.id = g.user_id
+                FROM payments pay
+                JOIN bookings b ON b.id = pay.booking_id
+                JOIN properties p ON p.id = b.property_id
+                JOIN guests g ON g.id = b.guest_id
+                JOIN users guest_user ON guest_user.id = g.user_id
                 ORDER BY pay.created_at DESC LIMIT 100
             """)
             payments = cursor.fetchall()
@@ -3023,10 +3023,10 @@ def create_app() -> Flask:
                 SELECT r.id, r.rating, r.comment, r.created_at,
                        p.title AS property_title, p.id AS property_id,
                        guest_user.name AS guest_name, guest_user.email AS guest_email
-                FROM Reviews r
-                JOIN Properties p ON p.id = r.property_id
-                JOIN Guests g ON g.id = r.guest_id
-                JOIN Users guest_user ON guest_user.id = g.user_id
+                FROM reviews r
+                JOIN properties p ON p.id = r.property_id
+                JOIN guests g ON g.id = r.guest_id
+                JOIN users guest_user ON guest_user.id = g.user_id
                 ORDER BY r.created_at DESC LIMIT 100
             """)
             reviews = cursor.fetchall()
@@ -3050,7 +3050,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM Reviews WHERE id = %s", (review_id,))
+            cursor.execute("DELETE FROM reviews WHERE id = %s", (review_id,))
             affected = cursor.rowcount
             conn.commit()
             cursor.close()
@@ -3077,8 +3077,8 @@ def create_app() -> Flask:
                 SELECT c.id, c.subject, c.description, c.status, c.admin_response,
                        c.created_at, c.updated_at,
                        u.name AS user_name, u.email AS user_email, u.role AS user_role
-                FROM Complaints c
-                JOIN Users u ON c.user_id = u.id
+                FROM complaints c
+                JOIN users u ON c.user_id = u.id
                 ORDER BY c.created_at DESC
             """)
             complaints = cursor.fetchall()
@@ -3106,7 +3106,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT id, user_id FROM Complaints WHERE id = %s", (complaint_id,))
+            cursor.execute("SELECT id, user_id FROM complaints WHERE id = %s", (complaint_id,))
             comp = cursor.fetchone()
             if not comp:
                 cursor.close()
@@ -3122,7 +3122,7 @@ def create_app() -> Flask:
                 params.append(admin_response.strip())
             if updates:
                 params.append(complaint_id)
-                cursor.execute(f"UPDATE Complaints SET {', '.join(updates)} WHERE id = %s", params)
+                cursor.execute(f"UPDATE complaints SET {', '.join(updates)} WHERE id = %s", params)
                 _create_notification(cursor, comp['user_id'],
                     f"Your complaint #{complaint_id} has been updated. Status: {status_val or 'unchanged'}.")
             conn.commit()
@@ -3145,7 +3145,7 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
             cursor.execute(
-                "SELECT id, message, is_read, created_at FROM Notifications WHERE user_id = %s ORDER BY created_at DESC LIMIT 50",
+                "SELECT id, message, is_read, created_at FROM notifications WHERE user_id = %s ORDER BY created_at DESC LIMIT 50",
                 (admin["id"],)
             )
             notifications = cursor.fetchall()
@@ -3169,9 +3169,9 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
             if notif_id:
-                cursor.execute("UPDATE Notifications SET is_read = TRUE WHERE id = %s AND user_id = %s", (notif_id, admin["id"]))
+                cursor.execute("UPDATE notifications SET is_read = TRUE WHERE id = %s AND user_id = %s", (notif_id, admin["id"]))
             else:
-                cursor.execute("UPDATE Notifications SET is_read = TRUE WHERE user_id = %s", (admin["id"],))
+                cursor.execute("UPDATE notifications SET is_read = TRUE WHERE user_id = %s", (admin["id"],))
             conn.commit()
             cursor.close()
             conn.close()
@@ -3191,7 +3191,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM Notifications WHERE id = %s AND user_id = %s", (notif_id, admin["id"]))
+            cursor.execute("DELETE FROM notifications WHERE id = %s AND user_id = %s", (notif_id, admin["id"]))
             conn.commit()
             cursor.close()
             conn.close()
@@ -3212,7 +3212,7 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
             cursor.execute(
-                "SELECT u.id, u.name, u.email, u.profile_picture, u.created_at FROM Users u WHERE u.id = %s",
+                "SELECT u.id, u.name, u.email, u.profile_picture, u.created_at FROM users u WHERE u.id = %s",
                 (admin["id"],)
             )
             profile = cursor.fetchone()
@@ -3236,9 +3236,9 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
             if name:
-                cursor.execute("UPDATE Users SET name = %s WHERE id = %s", (name, admin["id"]))
+                cursor.execute("UPDATE users SET name = %s WHERE id = %s", (name, admin["id"]))
             if profile_picture:
-                cursor.execute("UPDATE Users SET profile_picture = %s WHERE id = %s", (profile_picture, admin["id"]))
+                cursor.execute("UPDATE users SET profile_picture = %s WHERE id = %s", (profile_picture, admin["id"]))
             conn.commit()
             cursor.close()
             conn.close()
@@ -3261,7 +3261,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT password_hash, salt FROM Users WHERE id = %s", (admin["id"],))
+            cursor.execute("SELECT password_hash, salt FROM users WHERE id = %s", (admin["id"],))
             user = cursor.fetchone()
             old_hash = hash_password(old_password, user['salt'])
             if old_hash != user['password_hash']:
@@ -3270,7 +3270,7 @@ def create_app() -> Flask:
                 return jsonify({"status": "error", "message": "Current password is incorrect"}), 400
             new_salt = generate_salt()
             new_hash = hash_password(new_password, new_salt)
-            cursor.execute("UPDATE Users SET password_hash = %s, salt = %s WHERE id = %s", (new_hash, new_salt, admin["id"]))
+            cursor.execute("UPDATE users SET password_hash = %s, salt = %s WHERE id = %s", (new_hash, new_salt, admin["id"]))
             conn.commit()
             cursor.close()
             conn.close()
@@ -3296,7 +3296,7 @@ def create_app() -> Flask:
                 SELECT DATE_FORMAT(b.created_at, '%b') AS month_label,
                        COUNT(*) AS bookings,
                        COALESCE(SUM(b.total_price), 0) AS revenue
-                FROM Bookings b WHERE b.status != 'Cancelled'
+                FROM bookings b WHERE b.status != 'Cancelled'
                 GROUP BY DATE_FORMAT(b.created_at, '%Y-%m'), month_label
                 ORDER BY DATE_FORMAT(b.created_at, '%Y-%m') ASC LIMIT 12
             """)
@@ -3309,14 +3309,14 @@ def create_app() -> Flask:
 
             property_type_dist = []
             cursor.execute("""
-                SELECT property_type, COUNT(*) AS count FROM Properties GROUP BY property_type
+                SELECT property_type, COUNT(*) AS count FROM properties GROUP BY property_type
             """)
             for row in cursor.fetchall():
                 property_type_dist.append({"type": row["property_type"] or "Unknown", "count": int(row["count"])})
 
             booking_status_dist = []
             cursor.execute("""
-                SELECT status, COUNT(*) AS count FROM Bookings GROUP BY status
+                SELECT status, COUNT(*) AS count FROM bookings GROUP BY status
             """)
             for row in cursor.fetchall():
                 booking_status_dist.append({"status": row["status"], "count": int(row["count"])})
@@ -3326,11 +3326,11 @@ def create_app() -> Flask:
                 SELECT u.name, COUNT(DISTINCT p.id) AS properties,
                        COUNT(DISTINCT b.id) AS bookings,
                        COALESCE(SUM(CASE WHEN pay.status = 'Success' THEN pay.amount ELSE 0 END), 0) AS revenue
-                FROM Users u
-                JOIN Hosts h ON h.user_id = u.id
-                JOIN Properties p ON p.host_id = h.id
-                LEFT JOIN Bookings b ON b.property_id = p.id
-                LEFT JOIN Payments pay ON pay.booking_id = b.id
+                FROM users u
+                JOIN hosts h ON h.user_id = u.id
+                JOIN properties p ON p.host_id = h.id
+                LEFT JOIN bookings b ON b.property_id = p.id
+                LEFT JOIN payments pay ON pay.booking_id = b.id
                 WHERE h.is_approved = TRUE
                 GROUP BY u.id, u.name ORDER BY revenue DESC LIMIT 10
             """)
@@ -3348,10 +3348,10 @@ def create_app() -> Flask:
                        COUNT(DISTINCT b.id) AS bookings,
                        COALESCE(AVG(r.rating), 0) AS avg_rating,
                        COALESCE(SUM(CASE WHEN pay.status = 'Success' THEN pay.amount ELSE 0 END), 0) AS revenue
-                FROM Properties p
-                LEFT JOIN Bookings b ON b.property_id = p.id
-                LEFT JOIN Reviews r ON r.property_id = p.id
-                LEFT JOIN Payments pay ON pay.booking_id = b.id
+                FROM properties p
+                LEFT JOIN bookings b ON b.property_id = p.id
+                LEFT JOIN reviews r ON r.property_id = p.id
+                LEFT JOIN payments pay ON pay.booking_id = b.id
                 GROUP BY p.id, p.title, p.address
                 ORDER BY revenue DESC LIMIT 10
             """)
@@ -3367,7 +3367,7 @@ def create_app() -> Flask:
             daily_bookings = []
             cursor.execute("""
                 SELECT DATE(created_at) AS day, COUNT(*) AS count
-                FROM Bookings WHERE created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+                FROM bookings WHERE created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
                 GROUP BY day ORDER BY day ASC
             """)
             for row in cursor.fetchall():
@@ -3404,8 +3404,8 @@ def create_app() -> Flask:
                 SELECT DATE_FORMAT(pay.created_at, '%Y-%m') AS month,
                        COALESCE(SUM(pay.amount), 0) AS revenue,
                        COUNT(DISTINCT b.id) AS bookings
-                FROM Payments pay
-                JOIN Bookings b ON b.id = pay.booking_id
+                FROM payments pay
+                JOIN bookings b ON b.id = pay.booking_id
                 WHERE pay.status = 'Success'
                 GROUP BY month ORDER BY month DESC LIMIT 12
             """)
@@ -3421,9 +3421,9 @@ def create_app() -> Flask:
                 SELECT p.property_type,
                        COALESCE(SUM(pay.amount), 0) AS revenue,
                        COUNT(DISTINCT b.id) AS bookings
-                FROM Payments pay
-                JOIN Bookings b ON b.id = pay.booking_id
-                JOIN Properties p ON p.id = b.property_id
+                FROM payments pay
+                JOIN bookings b ON b.id = pay.booking_id
+                JOIN properties p ON p.id = b.property_id
                 WHERE pay.status = 'Success'
                 GROUP BY p.property_type
             """)
@@ -3441,12 +3441,12 @@ def create_app() -> Flask:
                        COUNT(DISTINCT b.id) AS bookings,
                        COALESCE(AVG(r.rating), 0) AS avg_rating,
                        COALESCE(SUM(CASE WHEN pay.status = 'Success' THEN pay.amount ELSE 0 END), 0) AS revenue
-                FROM Users u
-                JOIN Hosts h ON h.user_id = u.id AND h.is_approved = TRUE
-                LEFT JOIN Properties p ON p.host_id = h.id
-                LEFT JOIN Bookings b ON b.property_id = p.id
-                LEFT JOIN Reviews r ON r.property_id = p.id
-                LEFT JOIN Payments pay ON pay.booking_id = b.id
+                FROM users u
+                JOIN hosts h ON h.user_id = u.id AND h.is_approved = TRUE
+                LEFT JOIN properties p ON p.host_id = h.id
+                LEFT JOIN bookings b ON b.property_id = p.id
+                LEFT JOIN reviews r ON r.property_id = p.id
+                LEFT JOIN payments pay ON pay.booking_id = b.id
                 GROUP BY u.id, u.name ORDER BY revenue DESC
             """)
             for row in cursor.fetchall():
@@ -3464,10 +3464,10 @@ def create_app() -> Flask:
                        COUNT(DISTINCT b.id) AS total_bookings,
                        COALESCE(SUM(CASE WHEN b.status != 'Cancelled' THEN b.total_price ELSE 0 END), 0) AS total_spent,
                        COUNT(DISTINCT rv.id) AS reviews_written
-                FROM Users u
-                JOIN Guests g ON g.user_id = u.id
-                LEFT JOIN Bookings b ON b.guest_id = g.id
-                LEFT JOIN Reviews rv ON rv.guest_id = g.id
+                FROM users u
+                JOIN guests g ON g.user_id = u.id
+                LEFT JOIN bookings b ON b.guest_id = g.id
+                LEFT JOIN reviews rv ON rv.guest_id = g.id
                 GROUP BY u.id, u.name, u.email
                 ORDER BY total_spent DESC LIMIT 20
             """)
@@ -3508,7 +3508,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT id, status, guest_id FROM Bookings WHERE id = %s", (booking_id,))
+            cursor.execute("SELECT id, status, guest_id FROM bookings WHERE id = %s", (booking_id,))
             booking = cursor.fetchone()
             if not booking:
                 cursor.close()
@@ -3530,10 +3530,10 @@ def create_app() -> Flask:
                 conn.close()
                 return jsonify({"status": "error", "message": f"Cannot {action} a booking with status '{booking['status']}'"}), 400
 
-            cursor.execute("UPDATE Bookings SET status = %s WHERE id = %s", (new_status, booking_id))
+            cursor.execute("UPDATE bookings SET status = %s WHERE id = %s", (new_status, booking_id))
 
             guest_user_cursor = conn.cursor(dictionary=True)
-            guest_user_cursor.execute("SELECT user_id FROM Guests WHERE id = %s", (booking['guest_id'],))
+            guest_user_cursor.execute("SELECT user_id FROM guests WHERE id = %s", (booking['guest_id'],))
             guest_user = guest_user_cursor.fetchone()
             guest_user_cursor.close()
             if guest_user:
@@ -3562,8 +3562,8 @@ def create_app() -> Flask:
             cursor.execute(
                 """
                 SELECT u.id, u.name, u.email, u.profile_picture, g.bio, u.created_at
-                FROM Users u
-                JOIN Guests g ON g.user_id = u.id
+                FROM users u
+                JOIN guests g ON g.user_id = u.id
                 WHERE u.id = %s
                 """,
                 (guest["id"],)
@@ -3590,10 +3590,10 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
             if name:
-                cursor.execute("UPDATE Users SET name = %s WHERE id = %s", (name, guest["id"]))
+                cursor.execute("UPDATE users SET name = %s WHERE id = %s", (name, guest["id"]))
             if profile_picture:
-                cursor.execute("UPDATE Users SET profile_picture = %s WHERE id = %s", (profile_picture, guest["id"]))
-            cursor.execute("UPDATE Guests SET bio = %s WHERE user_id = %s", (bio, guest["id"]))
+                cursor.execute("UPDATE users SET profile_picture = %s WHERE id = %s", (profile_picture, guest["id"]))
+            cursor.execute("UPDATE guests SET bio = %s WHERE user_id = %s", (bio, guest["id"]))
             conn.commit()
             cursor.close()
             conn.close()
@@ -3616,7 +3616,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT password_hash, salt FROM Users WHERE id = %s", (guest["id"],))
+            cursor.execute("SELECT password_hash, salt FROM users WHERE id = %s", (guest["id"],))
             user = cursor.fetchone()
             old_hash = hash_password(old_password, user['salt'])
             if old_hash != user['password_hash']:
@@ -3625,7 +3625,7 @@ def create_app() -> Flask:
                 return jsonify({"status": "error", "message": "Current password is incorrect"}), 400
             new_salt = generate_salt()
             new_hash = hash_password(new_password, new_salt)
-            cursor.execute("UPDATE Users SET password_hash = %s, salt = %s WHERE id = %s", (new_hash, new_salt, guest["id"]))
+            cursor.execute("UPDATE users SET password_hash = %s, salt = %s WHERE id = %s", (new_hash, new_salt, guest["id"]))
             conn.commit()
             cursor.close()
             conn.close()
@@ -3646,13 +3646,13 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
 
-            total_bookings = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM Bookings WHERE guest_id = %s", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
-            active_bookings = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM Bookings WHERE guest_id = %s AND status IN ('Pending','Confirmed','Checked-In')", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
-            completed_bookings = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM Bookings WHERE guest_id = %s AND status = 'Completed'", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
-            total_spent = float((lambda: (cursor.execute("SELECT COALESCE(SUM(pay.amount), 0) AS t FROM Payments pay JOIN Bookings b ON b.id = pay.booking_id WHERE b.guest_id = %s AND pay.status = 'Success'", (guest['guest_id'],)) or True) and cursor.fetchone()['t'])())
-            wishlist_count = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM Wishlist WHERE guest_id = %s", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
-            reviews_count = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM Reviews WHERE guest_id = %s", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
-            unread_notifications = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM Notifications WHERE user_id = %s AND is_read = FALSE", (guest['id'],)) or True) and cursor.fetchone()['c'])()
+            total_bookings = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM bookings WHERE guest_id = %s", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
+            active_bookings = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM bookings WHERE guest_id = %s AND status IN ('Pending','Confirmed','Checked-In')", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
+            completed_bookings = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM bookings WHERE guest_id = %s AND status = 'Completed'", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
+            total_spent = float((lambda: (cursor.execute("SELECT COALESCE(SUM(pay.amount), 0) AS t FROM payments pay JOIN bookings b ON b.id = pay.booking_id WHERE b.guest_id = %s AND pay.status = 'Success'", (guest['guest_id'],)) or True) and cursor.fetchone()['t'])())
+            wishlist_count = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM wishlist WHERE guest_id = %s", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
+            reviews_count = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM reviews WHERE guest_id = %s", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
+            unread_notifications = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM notifications WHERE user_id = %s AND is_read = FALSE", (guest['id'],)) or True) and cursor.fetchone()['c'])()
 
             cursor.close()
             conn.close()
@@ -3686,9 +3686,9 @@ def create_app() -> Flask:
                        p.price_per_night, p.max_guests,
                        COALESCE(AVG(r.rating), 0) AS average_rating,
                        COUNT(DISTINCT r.id) AS review_count
-                FROM Wishlist w
-                JOIN Properties p ON p.id = w.property_id
-                LEFT JOIN Reviews r ON r.property_id = p.id
+                FROM wishlist w
+                JOIN properties p ON p.id = w.property_id
+                LEFT JOIN reviews r ON r.property_id = p.id
                 WHERE w.guest_id = %s
                 GROUP BY w.id, p.id, p.title, p.image_url, p.property_type, p.address,
                          p.price_per_night, p.max_guests, w.created_at
@@ -3718,7 +3718,7 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT IGNORE INTO Wishlist (guest_id, property_id) VALUES (%s, %s)",
+                "INSERT IGNORE INTO wishlist (guest_id, property_id) VALUES (%s, %s)",
                 (guest['guest_id'], property_id)
             )
             conn.commit()
@@ -3740,7 +3740,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM Wishlist WHERE guest_id = %s AND property_id = %s",
+            cursor.execute("DELETE FROM wishlist WHERE guest_id = %s AND property_id = %s",
                            (guest['guest_id'], property_id))
             conn.commit()
             cursor.close()
@@ -3761,7 +3761,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            cursor.execute("SELECT id FROM Wishlist WHERE guest_id = %s AND property_id = %s",
+            cursor.execute("SELECT id FROM wishlist WHERE guest_id = %s AND property_id = %s",
                            (guest['guest_id'], property_id))
             exists = cursor.fetchone() is not None
             cursor.close()
@@ -3785,8 +3785,8 @@ def create_app() -> Flask:
             cursor.execute("""
                 SELECT r.id, r.rating, r.comment, r.created_at,
                        p.title AS property_title, p.id AS property_id
-                FROM Reviews r
-                JOIN Properties p ON p.id = r.property_id
+                FROM reviews r
+                JOIN properties p ON p.id = r.property_id
                 WHERE r.guest_id = %s
                 ORDER BY r.created_at DESC
             """, (guest['guest_id'],))
@@ -3819,18 +3819,18 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT id FROM Bookings WHERE guest_id = %s AND property_id = %s AND status IN ('Confirmed','Completed','Checked-In')",
+            cursor.execute("SELECT id FROM bookings WHERE guest_id = %s AND property_id = %s AND status IN ('Confirmed','Completed','Checked-In')",
                            (guest['guest_id'], property_id))
             if not cursor.fetchone():
                 cursor.close()
                 conn.close()
                 return jsonify({"status": "error", "message": "You can only review properties you have booked"}), 403
-            cursor.execute("SELECT id FROM Reviews WHERE guest_id = %s AND property_id = %s", (guest['guest_id'], property_id))
+            cursor.execute("SELECT id FROM reviews WHERE guest_id = %s AND property_id = %s", (guest['guest_id'], property_id))
             if cursor.fetchone():
                 cursor.close()
                 conn.close()
                 return jsonify({"status": "error", "message": "You have already reviewed this property"}), 409
-            cursor.execute("INSERT INTO Reviews (property_id, guest_id, rating, comment) VALUES (%s, %s, %s, %s)",
+            cursor.execute("INSERT INTO reviews (property_id, guest_id, rating, comment) VALUES (%s, %s, %s, %s)",
                            (property_id, guest['guest_id'], rating, comment or None))
             conn.commit()
             cursor.close()
@@ -3851,7 +3851,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM Reviews WHERE id = %s AND guest_id = %s", (review_id, guest['guest_id']))
+            cursor.execute("DELETE FROM reviews WHERE id = %s AND guest_id = %s", (review_id, guest['guest_id']))
             affected = cursor.rowcount
             conn.commit()
             cursor.close()
@@ -3875,7 +3875,7 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
             cursor.execute(
-                "SELECT id, message, is_read, created_at FROM Notifications WHERE user_id = %s ORDER BY created_at DESC LIMIT 50",
+                "SELECT id, message, is_read, created_at FROM notifications WHERE user_id = %s ORDER BY created_at DESC LIMIT 50",
                 (guest["id"],)
             )
             notifications = cursor.fetchall()
@@ -3899,9 +3899,9 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
             if notif_id:
-                cursor.execute("UPDATE Notifications SET is_read = TRUE WHERE id = %s AND user_id = %s", (notif_id, guest["id"]))
+                cursor.execute("UPDATE notifications SET is_read = TRUE WHERE id = %s AND user_id = %s", (notif_id, guest["id"]))
             else:
-                cursor.execute("UPDATE Notifications SET is_read = TRUE WHERE user_id = %s", (guest["id"],))
+                cursor.execute("UPDATE notifications SET is_read = TRUE WHERE user_id = %s", (guest["id"],))
             conn.commit()
             cursor.close()
             conn.close()
@@ -3921,7 +3921,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM Notifications WHERE id = %s AND user_id = %s", (notif_id, guest["id"]))
+            cursor.execute("DELETE FROM notifications WHERE id = %s AND user_id = %s", (notif_id, guest["id"]))
             conn.commit()
             cursor.close()
             conn.close()
@@ -3945,9 +3945,9 @@ def create_app() -> Flask:
                 SELECT pay.id, pay.amount, pay.payment_method, pay.status, pay.transaction_id, pay.created_at,
                        b.id AS booking_id, b.check_in, b.check_out, b.total_price,
                        p.title AS property_title, p.image_url
-                FROM Payments pay
-                JOIN Bookings b ON b.id = pay.booking_id
-                JOIN Properties p ON p.id = b.property_id
+                FROM payments pay
+                JOIN bookings b ON b.id = pay.booking_id
+                JOIN properties p ON p.id = b.property_id
                 WHERE b.guest_id = %s
                 ORDER BY pay.created_at DESC
             """, (guest['guest_id'],))
@@ -3978,7 +3978,7 @@ def create_app() -> Flask:
             cursor = conn.cursor(dictionary=True)
             cursor.execute("""
                 SELECT id, subject, description, status, admin_response, created_at, updated_at
-                FROM Complaints WHERE user_id = %s ORDER BY created_at DESC
+                FROM complaints WHERE user_id = %s ORDER BY created_at DESC
             """, (guest['id'],))
             complaints = cursor.fetchall()
             for c in complaints:
@@ -4003,11 +4003,11 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO Complaints (user_id, subject, description) VALUES (%s, %s, %s)",
+            cursor.execute("INSERT INTO complaints (user_id, subject, description) VALUES (%s, %s, %s)",
                            (guest['id'], subject, description))
             complaint_id = cursor.lastrowid
             try:
-                cursor.execute("SELECT user_id FROM Admins LIMIT 1")
+                cursor.execute("SELECT user_id FROM admins LIMIT 1")
                 admin_row = cursor.fetchone()
                 if admin_row:
                     _create_notification(cursor, admin_row[0], f"New complaint submitted: {subject}")
