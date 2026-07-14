@@ -207,22 +207,22 @@ CREATE TABLE IF NOT EXISTS complaints (
 ) ENGINE=InnoDB;
 
 -- Ensure properties table has image_url and property_type columns
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS image_url VARCHAR(500) NULL AFTER description;
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS property_type ENUM('Apartment', 'House', 'Villa') DEFAULT 'House' AFTER image_url;
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS bedrooms INT DEFAULT 1 AFTER max_guests;
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS bathrooms INT DEFAULT 1 AFTER bedrooms;
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS beds INT DEFAULT 1 AFTER bathrooms;
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS property_size INT DEFAULT 0 AFTER beds;
-ALTER TABLE properties ADD COLUMN IF NOT EXISTS nearby_location VARCHAR(200) DEFAULT '' AFTER property_size;
+ALTER TABLE properties ADD COLUMN image_url VARCHAR(500) NULL AFTER description;
+ALTER TABLE properties ADD COLUMN property_type ENUM('Apartment', 'House', 'Villa') DEFAULT 'House' AFTER image_url;
+ALTER TABLE properties ADD COLUMN bedrooms INT DEFAULT 1 AFTER max_guests;
+ALTER TABLE properties ADD COLUMN bathrooms INT DEFAULT 1 AFTER bedrooms;
+ALTER TABLE properties ADD COLUMN beds INT DEFAULT 1 AFTER bathrooms;
+ALTER TABLE properties ADD COLUMN property_size INT DEFAULT 0 AFTER beds;
+ALTER TABLE properties ADD COLUMN nearby_location VARCHAR(200) DEFAULT '' AFTER property_size;
 
 -- Ensure hosts table has gender, phone, city columns
-ALTER TABLE hosts ADD COLUMN IF NOT EXISTS gender VARCHAR(20) DEFAULT '' AFTER is_approved;
-ALTER TABLE hosts ADD COLUMN IF NOT EXISTS phone VARCHAR(20) DEFAULT '' AFTER gender;
-ALTER TABLE hosts ADD COLUMN IF NOT EXISTS city VARCHAR(100) DEFAULT '' AFTER phone;
+ALTER TABLE hosts ADD COLUMN gender VARCHAR(20) DEFAULT '' AFTER is_approved;
+ALTER TABLE hosts ADD COLUMN phone VARCHAR(20) DEFAULT '' AFTER gender;
+ALTER TABLE hosts ADD COLUMN city VARCHAR(100) DEFAULT '' AFTER phone;
 """
 
 def init_db_schema():
-    """Execute the full schema DDL — idempotent via CREATE IF NOT EXISTS and ADD COLUMN IF NOT EXISTS."""
+    """Execute the full schema DDL — CREATE IF NOT EXISTS is safe; ALTER TABLE silently ignores duplicate columns."""
     conn = mysql.connector.connect(**DB_CONFIG)
     try:
         cursor = conn.cursor()
@@ -231,7 +231,13 @@ def init_db_schema():
             clean = "\n".join(lines).strip()
             if not clean:
                 continue
-            cursor.execute(clean)
+            try:
+                cursor.execute(clean)
+            except mysql.connector.Error as e:
+                if e.errno == 1060:
+                    pass  # Duplicate column — already exists, skip
+                else:
+                    raise
         conn.commit()
         print("Database schema initialised (all tables).")
     finally:
