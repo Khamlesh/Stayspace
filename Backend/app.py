@@ -1,10 +1,9 @@
 import json
 import os
-import subprocess
 import hashlib
 import secrets
 import traceback
-from pathlib import Path
+from datetime import datetime, timedelta
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -13,9 +12,6 @@ try:
     import mysql.connector
 except ImportError:
     mysql = None
-
-ROOT_DIR = Path(__file__).resolve().parent.parent
-CORE_EXE = ROOT_DIR / "stayspace_core.exe"
 
 DB_CONFIG = {
     'host': os.environ.get('MYSQLHOST', os.environ.get('DB_HOST', 'localhost')),
@@ -34,17 +30,222 @@ def hash_password(password, salt):
     combined = password + salt
     return hashlib.sha256(combined.encode()).hexdigest()
 
+SCHEMA_SQL = """
+-- 1. Users Table
+CREATE TABLE IF NOT EXISTS Users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    salt VARCHAR(64) NOT NULL,
+    role ENUM('Guest', 'Host', 'Admin') NOT NULL DEFAULT 'Guest',
+    profile_picture VARCHAR(255) NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- 2. Guests Table
+CREATE TABLE IF NOT EXISTS Guests (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL UNIQUE,
+    bio TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- 3. Hosts Table
+CREATE TABLE IF NOT EXISTS Hosts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL UNIQUE,
+    is_approved BOOLEAN DEFAULT FALSE,
+    gender VARCHAR(20) DEFAULT '',
+    phone VARCHAR(20) DEFAULT '',
+    city VARCHAR(100) DEFAULT '',
+    bio TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- 4. Admins Table
+CREATE TABLE IF NOT EXISTS Admins (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- 5. Properties Table
+CREATE TABLE IF NOT EXISTS Properties (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    host_id INT NOT NULL,
+    title VARCHAR(150) NOT NULL,
+    description TEXT NOT NULL,
+    address VARCHAR(255) NOT NULL,
+    price_per_night DECIMAL(10, 2) NOT NULL,
+    max_guests INT NOT NULL,
+    latitude DECIMAL(9, 6) NULL,
+    longitude DECIMAL(9, 6) NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (host_id) REFERENCES Hosts(id) ON DELETE CASCADE,
+    INDEX idx_price (price_per_night),
+    INDEX idx_host (host_id)
+) ENGINE=InnoDB;
+
+-- 6. Amenities Table
+CREATE TABLE IF NOT EXISTS Amenities (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    property_id INT NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    FOREIGN KEY (property_id) REFERENCES Properties(id) ON DELETE CASCADE,
+    INDEX idx_property (property_id)
+) ENGINE=InnoDB;
+
+-- 7. Bookings Table
+CREATE TABLE IF NOT EXISTS Bookings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    property_id INT NOT NULL,
+    guest_id INT NOT NULL,
+    check_in DATE NOT NULL,
+    check_out DATE NOT NULL,
+    total_price DECIMAL(10, 2) NOT NULL,
+    status ENUM('Pending', 'Confirmed', 'Checked-In', 'Completed', 'Cancelled') DEFAULT 'Pending',
+    guests_count INT DEFAULT 1,
+    special_requests TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (property_id) REFERENCES Properties(id) ON DELETE CASCADE,
+    FOREIGN KEY (guest_id) REFERENCES Guests(id) ON DELETE CASCADE,
+    INDEX idx_dates (check_in, check_out)
+) ENGINE=InnoDB;
+
+-- 8. Payments Table
+CREATE TABLE IF NOT EXISTS Payments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT NOT NULL,
+    amount DECIMAL(10, 2) NOT NULL,
+    payment_method ENUM('Credit Card', 'Debit Card', 'UPI', 'Net Banking') NOT NULL,
+    status ENUM('Success', 'Failed') DEFAULT 'Success',
+    transaction_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (booking_id) REFERENCES Bookings(id) ON DELETE CASCADE,
+    INDEX idx_transaction (transaction_id)
+) ENGINE=InnoDB;
+
+-- 9. Reviews Table
+CREATE TABLE IF NOT EXISTS Reviews (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    property_id INT NOT NULL,
+    guest_id INT NOT NULL,
+    rating INT CHECK (rating >= 1 AND rating <= 5),
+    comment TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (property_id) REFERENCES Properties(id) ON DELETE CASCADE,
+    FOREIGN KEY (guest_id) REFERENCES Guests(id) ON DELETE CASCADE,
+    INDEX idx_property_rev (property_id)
+) ENGINE=InnoDB;
+
+-- 10. Wishlist Table
+CREATE TABLE IF NOT EXISTS Wishlist (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    guest_id INT NOT NULL,
+    property_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_wishlist (guest_id, property_id),
+    FOREIGN KEY (guest_id) REFERENCES Guests(id) ON DELETE CASCADE,
+    FOREIGN KEY (property_id) REFERENCES Properties(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- 11. Notifications Table
+CREATE TABLE IF NOT EXISTS Notifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    message TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE,
+    INDEX idx_user_notif (user_id)
+) ENGINE=InnoDB;
+
+-- 12. Receipts Table
+CREATE TABLE IF NOT EXISTS Receipts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    payment_id INT NOT NULL UNIQUE,
+    receipt_path VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (payment_id) REFERENCES Payments(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- 13. Reports Table
+CREATE TABLE IF NOT EXISTS Reports (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    type ENUM('Earnings', 'Analytics', 'Activity', 'Revenue') NOT NULL,
+    path VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- 14. Sessions Table (Used for API authentication state)
+CREATE TABLE IF NOT EXISTS Sessions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    session_token VARCHAR(255) NOT NULL UNIQUE,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE,
+    INDEX idx_token (session_token)
+) ENGINE=InnoDB;
+
+-- 15. Complaints Table
+CREATE TABLE IF NOT EXISTS Complaints (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    subject VARCHAR(200) NOT NULL,
+    description TEXT NOT NULL,
+    status ENUM('Open', 'In Progress', 'Resolved', 'Closed') DEFAULT 'Open',
+    admin_response TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE,
+    INDEX idx_status (status)
+) ENGINE=InnoDB;
+
+-- Ensure Properties table has image_url and property_type columns
+ALTER TABLE Properties ADD COLUMN IF NOT EXISTS image_url VARCHAR(500) NULL AFTER description;
+ALTER TABLE Properties ADD COLUMN IF NOT EXISTS property_type ENUM('Apartment', 'House', 'Villa') DEFAULT 'House' AFTER image_url;
+ALTER TABLE Properties ADD COLUMN IF NOT EXISTS bedrooms INT DEFAULT 1 AFTER max_guests;
+ALTER TABLE Properties ADD COLUMN IF NOT EXISTS bathrooms INT DEFAULT 1 AFTER bedrooms;
+ALTER TABLE Properties ADD COLUMN IF NOT EXISTS beds INT DEFAULT 1 AFTER bathrooms;
+ALTER TABLE Properties ADD COLUMN IF NOT EXISTS property_size INT DEFAULT 0 AFTER beds;
+ALTER TABLE Properties ADD COLUMN IF NOT EXISTS nearby_location VARCHAR(200) DEFAULT '' AFTER property_size;
+
+-- Ensure Hosts table has gender, phone, city columns
+ALTER TABLE Hosts ADD COLUMN IF NOT EXISTS gender VARCHAR(20) DEFAULT '' AFTER is_approved;
+ALTER TABLE Hosts ADD COLUMN IF NOT EXISTS phone VARCHAR(20) DEFAULT '' AFTER gender;
+ALTER TABLE Hosts ADD COLUMN IF NOT EXISTS city VARCHAR(100) DEFAULT '' AFTER phone;
+"""
+
+def init_db_schema():
+    """Execute the full schema DDL — idempotent via CREATE IF NOT EXISTS and ADD COLUMN IF NOT EXISTS."""
+    conn = mysql.connector.connect(**DB_CONFIG)
+    try:
+        cursor = conn.cursor()
+        for stmt in SCHEMA_SQL.split(";"):
+            lines = [l for l in stmt.split("\n") if not l.strip().startswith("--")]
+            clean = "\n".join(lines).strip()
+            if not clean:
+                continue
+            cursor.execute(clean)
+        conn.commit()
+        print("Database schema initialised (all tables).")
+    finally:
+        cursor.close()
+        conn.close()
+
 def seed_demo_users():
-    """Insert demo users into database via core executable for correct hashing"""
-    if not CORE_EXE.exists():
-        return False
-    
+    """Insert demo users using pure Python — no core exe needed"""
     demo_users = [
         {'name': 'Admin User', 'email': 'admin@stayspace.com', 'password': 'Admin@123', 'role': 'Admin'},
         {'name': 'Priya Host', 'email': 'host@stayspace.com', 'password': 'Host@123', 'role': 'Host'},
         {'name': 'Aarav Guest', 'email': 'user@stayspace.com', 'password': 'User@123', 'role': 'Guest'}
     ]
-    
+
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
@@ -62,16 +263,27 @@ def seed_demo_users():
         if user['email'] in existing_emails:
             continue
         try:
-            params = json.dumps(user)
-            subprocess.run(
-                [str(CORE_EXE), "auth", "register", params],
-                cwd=str(ROOT_DIR),
-                capture_output=True, text=True, encoding="utf-8",
-                check=False, timeout=10
+            salt = generate_salt()
+            pw_hash = hash_password(user['password'], salt)
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO Users (name, email, password_hash, salt, role) VALUES (%s, %s, %s, %s, %s)",
+                (user['name'], user['email'], pw_hash, salt, user['role'])
             )
+            user_id = cursor.lastrowid
+            if user['role'] == 'Guest':
+                cursor.execute("INSERT INTO Guests (user_id) VALUES (%s)", (user_id,))
+            elif user['role'] == 'Host':
+                cursor.execute("INSERT INTO Hosts (user_id) VALUES (%s)", (user_id,))
+            elif user['role'] == 'Admin':
+                cursor.execute("INSERT INTO Admins (user_id) VALUES (%s)", (user_id,))
+            conn.commit()
+            cursor.close()
+            conn.close()
         except Exception as e:
             print(f"Seed warning for {user['email']}: {e}")
-    
+
     # Approve demo host after seeding
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
@@ -86,41 +298,10 @@ def seed_demo_users():
         conn.close()
     except Exception:
         pass
-    
+
     return True
 
 
-def _invoke_core(module: str, action: str, params: dict | None = None) -> tuple[object, int]:
-    if not CORE_EXE.exists():
-        return jsonify({"status": "error", "message": "Core executable not found.", "path": str(CORE_EXE)}), 500
-
-    params = params or {}
-    command = [str(CORE_EXE), module, action, json.dumps(params)]
-    process = subprocess.run(
-        command,
-        cwd=str(ROOT_DIR),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        check=False,
-    )
-
-    if process.returncode != 0:
-        print("===== CORE ENGINE FAILED =====")
-        print("Return Code:", process.returncode)
-        print("STDOUT:")
-        print(process.stdout)
-        print("STDERR:")
-        print(process.stderr)
-        print("==============================")
-        return jsonify({"status": "error", "message": "Core engine execution failed.", "details": process.stderr.strip()}), 500
-
-    try:
-        payload = json.loads(process.stdout.strip() or "{}")
-    except json.JSONDecodeError:
-        return jsonify({"status": "error", "message": "Invalid JSON from core engine.", "details": process.stdout.strip()}), 500
-
-    return jsonify(payload), 200
 
 
 def _require_admin(token: str):
@@ -258,16 +439,10 @@ def create_app() -> Flask:
     app.config["JSON_SORT_KEYS"] = False
     
     # Initialize DB schema, then seed demo users on startup
-    if CORE_EXE.exists():
-        try:
-            subprocess.run(
-                [str(CORE_EXE), "db_init", "init", json.dumps({})],
-                cwd=str(ROOT_DIR),
-                capture_output=True, text=True, encoding="utf-8",
-                check=False, timeout=30
-            )
-        except Exception:
-            pass
+    try:
+        init_db_schema()
+    except Exception as e:
+        print(f"Schema init warning: {e}")
     seed_demo_users()
 
     @app.get("/")
@@ -308,7 +483,11 @@ def create_app() -> Flask:
 
     @app.post("/api/db/init")
     def init_db():
-        return _invoke_core("db_init", "init", {})
+        try:
+            init_db_schema()
+            return jsonify({"status": "success", "message": "Database initialized"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
 
     @app.post("/api/auth/register")
     def register():
@@ -317,6 +496,17 @@ def create_app() -> Flask:
         gender = body.pop('gender', '')
         phone = body.pop('phone', '')
         city = body.pop('city', '')
+
+        name = body.get('name', '').strip()
+        email = body.get('email', '').strip()
+        password = body.get('password', '').strip()
+        role = body.get('role', 'Guest').strip()
+
+        if not name or not email or not password:
+            return jsonify({"status": "error", "message": "Name, email, and password are required"}), 400
+
+        if role not in ('Guest', 'Host', 'Admin'):
+            return jsonify({"status": "error", "message": "Invalid role"}), 400
 
         if body.get('role') == 'Host' and phone:
             try:
@@ -332,55 +522,75 @@ def create_app() -> Flask:
                 if existing:
                     return jsonify({"status": "error", "message": "This phone number is already registered"}), 400
             except Exception as e:
-                import traceback
                 traceback.print_exc()
                 print("REGISTER EXCEPTION:", str(e))
 
         print("========== REGISTER REQUEST ==========")
         print("REGISTER BODY:", body)
+
         try:
-            result = _invoke_core("auth", "register", body)
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute("SELECT id FROM Users WHERE email = %s", (email,))
+            if cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Email already registered"}), 409
+
+            salt = generate_salt()
+            pw_hash = hash_password(password, salt)
+            cursor.execute(
+                "INSERT INTO Users (name, email, password_hash, salt, role) VALUES (%s, %s, %s, %s, %s)",
+                (name, email, pw_hash, salt, role)
+            )
+            user_id = cursor.lastrowid
+
+            if role == 'Guest':
+                cursor.execute("INSERT INTO Guests (user_id) VALUES (%s)", (user_id,))
+            elif role == 'Host':
+                cursor.execute(
+                    "INSERT INTO Hosts (user_id, gender, phone, city) VALUES (%s, %s, %s, %s)",
+                    (user_id, gender, phone, city)
+                )
+            elif role == 'Admin':
+                cursor.execute("INSERT INTO Admins (user_id) VALUES (%s)", (user_id,))
+
+            conn.commit()
+
+            resp_data = {"user": {"id": user_id, "name": name, "email": email, "role": role}}
+
+            if role == 'Host':
+                token = secrets.token_urlsafe(32)
+                expires = datetime.utcnow() + timedelta(days=7)
+                cursor.execute(
+                    "INSERT INTO Sessions (user_id, session_token, expires_at) VALUES (%s, %s, %s)",
+                    (user_id, token, expires)
+                )
+                conn.commit()
+                cursor.execute("SELECT id, is_approved, gender, phone, city FROM Hosts WHERE user_id = %s", (user_id,))
+                host_row = cursor.fetchone()
+                cursor.close()
+                conn.close()
+                resp_data["token"] = token
+                if host_row:
+                    resp_data["host"] = {
+                        "id": host_row['id'],
+                        "is_approved": bool(host_row.get('is_approved', False)),
+                        "gender": host_row.get('gender', ''),
+                        "phone": host_row.get('phone', ''),
+                        "city": host_row.get('city', '')
+                    }
+            else:
+                cursor.close()
+                conn.close()
+
+            return jsonify({"status": "success", "data": resp_data}), 201
+
         except Exception as e:
-            import traceback
             traceback.print_exc()
             print("REGISTER ERROR:", str(e))
-            return jsonify({
-                "status": "error",
-                "message": str(e)
-            }), 500
-
-        if body.get('role') == 'Host' and isinstance(result, tuple):
-            resp_json, status_code = result
-            resp_data = resp_json.get_json() if hasattr(resp_json, 'get_json') else None
-            if resp_data and resp_data.get('status') == 'success':
-                try:
-                    conn = mysql.connector.connect(**DB_CONFIG)
-                    cursor = conn.cursor(dictionary=True)
-                    cursor.execute(
-                        "SELECT id FROM Users WHERE email = %s",
-                        (body.get('email', ''),)
-                    )
-                    user_row = cursor.fetchone()
-                    if user_row:
-                        cursor.execute(
-                            "SELECT id FROM Hosts WHERE user_id = %s",
-                            (user_row['id'],)
-                        )
-                        host_row = cursor.fetchone()
-                        if host_row:
-                            cursor.execute(
-                                "UPDATE Hosts SET gender = %s, phone = %s, city = %s WHERE id = %s",
-                                (gender, phone, city, host_row['id'])
-                            )
-                            conn.commit()
-                    cursor.close()
-                    conn.close()
-                except Exception as e:
-                    import traceback
-                    traceback.print_exc()
-                    print("REGISTER EXCEPTION:", str(e))
-
-        return result
+            return jsonify({"status": "error", "message": str(e)}), 500
 
     @app.post("/api/auth/check_phone")
     def check_phone():
@@ -407,22 +617,148 @@ def create_app() -> Flask:
     @app.post("/api/auth/login")
     def login():
         body = request.get_json(silent=True) or {}
-        return _invoke_core("auth", "login", body)
+        email = body.get('email', '').strip()
+        password = body.get('password', '').strip()
+
+        if not email or not password:
+            return jsonify({"status": "error", "message": "Email and password are required"}), 400
+
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT id, name, email, password_hash, salt, role, profile_picture FROM Users WHERE email = %s", (email,))
+            user = cursor.fetchone()
+            if not user:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Invalid email or password"}), 401
+
+            if hash_password(password, user['salt']) != user['password_hash']:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Invalid email or password"}), 401
+
+            token = secrets.token_urlsafe(32)
+            expires = datetime.utcnow() + timedelta(days=7)
+            cursor.execute(
+                "INSERT INTO Sessions (user_id, session_token, expires_at) VALUES (%s, %s, %s)",
+                (user['id'], token, expires)
+            )
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+            return jsonify({
+                "status": "success",
+                "data": {
+                    "token": token,
+                    "user": {
+                        "id": user['id'],
+                        "name": user['name'],
+                        "email": user['email'],
+                        "role": user['role'],
+                        "profile_picture": user.get('profile_picture')
+                    }
+                }
+            }), 200
+        except Exception as e:
+            traceback.print_exc()
+            print("LOGIN ERROR:", str(e))
+            return jsonify({"status": "error", "message": str(e)}), 500
 
     @app.post("/api/auth/logout")
     def logout():
         body = request.get_json(silent=True) or {}
-        return _invoke_core("auth", "logout", body)
+        token = body.get('token', '') or request.headers.get('X-Auth-Token', '')
+        if not token:
+            return jsonify({"status": "error", "message": "Token is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM Sessions WHERE session_token = %s", (token,))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Logged out"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
 
     @app.post("/api/auth/validate")
     def validate_session():
         body = request.get_json(silent=True) or {}
-        return _invoke_core("auth", "validate", body)
+        token = body.get('token', '') or request.headers.get('X-Auth-Token', '')
+        if not token:
+            return jsonify({"status": "error", "message": "Token is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT u.id, u.name, u.email, u.role, u.profile_picture,
+                       s.expires_at
+                FROM Sessions s
+                JOIN Users u ON s.user_id = u.id
+                WHERE s.session_token = %s AND s.expires_at > NOW()
+            """, (token,))
+            row = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            if not row:
+                return jsonify({"status": "error", "message": "Invalid or expired token"}), 401
+            return jsonify({
+                "status": "success",
+                "data": {
+                    "user": {
+                        "id": row['id'],
+                        "name": row['name'],
+                        "email": row['email'],
+                        "role": row['role'],
+                        "profile_picture": row.get('profile_picture')
+                    }
+                }
+            }), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
 
     @app.post("/api/auth/change_password")
     def change_password():
         body = request.get_json(silent=True) or {}
-        return _invoke_core("auth", "change_password", body)
+        token = body.get('token', '') or request.headers.get('X-Auth-Token', '')
+        old_password = body.get('old_password', '').strip()
+        new_password = body.get('new_password', '').strip()
+
+        if not token or not old_password or not new_password:
+            return jsonify({"status": "error", "message": "Token, old_password, and new_password are required"}), 400
+
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT u.id, u.password_hash, u.salt
+                FROM Sessions s
+                JOIN Users u ON s.user_id = u.id
+                WHERE s.session_token = %s AND s.expires_at > NOW()
+            """, (token,))
+            user = cursor.fetchone()
+            if not user:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Invalid or expired token"}), 401
+
+            if hash_password(old_password, user['salt']) != user['password_hash']:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Current password is incorrect"}), 403
+
+            new_salt = generate_salt()
+            new_hash = hash_password(new_password, new_salt)
+            cursor.execute("UPDATE Users SET password_hash = %s, salt = %s WHERE id = %s",
+                           (new_hash, new_salt, user['id']))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Password changed successfully"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
 
     @app.post("/api/auth/check_email")
     def check_email():
@@ -503,7 +839,71 @@ def create_app() -> Flask:
     @app.post("/api/properties")
     def create_property():
         body = request.get_json(silent=True) or {}
-        return _invoke_core("property", "create", body)
+        token = body.get('token', '') or request.headers.get('X-Auth-Token', '')
+        if not token:
+            return jsonify({"status": "error", "message": "Token is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT h.id AS host_id, h.is_approved
+                FROM Sessions s
+                JOIN Users u ON s.user_id = u.id
+                JOIN Hosts h ON h.user_id = u.id
+                WHERE s.session_token = %s AND s.expires_at > NOW() AND u.role = 'Host'
+            """, (token,))
+            host = cursor.fetchone()
+            if not host:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Invalid or expired token"}), 401
+            if not host.get('is_approved'):
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Host not approved"}), 403
+
+            title = body.get('title', '').strip()
+            description = body.get('description', '').strip()
+            image_url = body.get('image_url', '')
+            property_type = body.get('property_type', 'House')
+            address = body.get('address', '')
+            price_per_night = body.get('price_per_night', 0)
+            max_guests = body.get('max_guests', 2)
+            bedrooms = body.get('bedrooms', 1)
+            bathrooms = body.get('bathrooms', 1)
+            beds = body.get('beds', 1)
+            property_size = body.get('property_size', 0)
+            nearby_location = body.get('nearby_location', '')
+            amenities = body.get('amenities', [])
+
+            if not title:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Title is required"}), 400
+
+            cursor.execute("""
+                INSERT INTO Properties
+                (host_id, title, description, image_url, property_type, address,
+                 price_per_night, max_guests, bedrooms, bathrooms, beds, property_size, nearby_location)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (host['host_id'], title, description, image_url, property_type, address,
+                  price_per_night, max_guests, bedrooms, bathrooms, beds, property_size, nearby_location))
+            property_id = cursor.lastrowid
+
+            for amenity in amenities:
+                if amenity:
+                    cursor.execute("INSERT INTO Amenities (property_id, name) VALUES (%s, %s)",
+                                   (property_id, amenity))
+
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+            return jsonify({"status": "success", "data": {"property_id": property_id}}), 201
+        except Exception as e:
+            traceback.print_exc()
+            print("CREATE PROPERTY ERROR:", str(e))
+            return jsonify({"status": "error", "message": str(e)}), 500
 
     @app.get("/api/properties")
     def list_properties():
@@ -672,7 +1072,47 @@ def create_app() -> Flask:
         if not token:
             body = request.get_json(silent=True) or {}
             token = body.get('token', '')
-        return _invoke_core("property", "host", {"token": token})
+        if not token:
+            return jsonify({"status": "error", "message": "Token is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT h.id AS host_id
+                FROM Sessions s
+                JOIN Users u ON s.user_id = u.id
+                JOIN Hosts h ON h.user_id = u.id
+                WHERE s.session_token = %s AND s.expires_at > NOW() AND u.role = 'Host'
+            """, (token,))
+            host = cursor.fetchone()
+            if not host:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Invalid or expired token"}), 401
+
+            cursor.execute("""
+                SELECT p.id, p.title, p.description, p.image_url, p.property_type,
+                       p.address, p.price_per_night, p.max_guests, p.created_at,
+                       p.bedrooms, p.bathrooms, p.beds, p.property_size, p.nearby_location
+                FROM Properties p
+                WHERE p.host_id = %s
+                ORDER BY p.created_at DESC
+            """, (host['host_id'],))
+            properties = cursor.fetchall()
+
+            for prop in properties:
+                if prop.get('created_at'):
+                    prop['created_at'] = str(prop['created_at'])
+                cursor.execute("SELECT name FROM Amenities WHERE property_id = %s", (prop['id'],))
+                prop['amenities'] = [a['name'] for a in cursor.fetchall()]
+
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": properties}), 200
+        except Exception as e:
+            traceback.print_exc()
+            print("HOST PROPERTIES ERROR:", str(e))
+            return jsonify({"status": "error", "message": str(e)}), 500
 
     @app.post("/api/host/stats")
     def host_stats():
@@ -3586,17 +4026,13 @@ def create_app() -> Flask:
 
     @app.errorhandler(Exception)
     def handle_exception(e):
-        tb = traceback.format_exception(type(e), e, e.__traceback__)
-        print("=" * 60)
-        print("UNHANDLED EXCEPTION")
-        print(f"Route: {request.url}")
-        print(f"Method: {request.method}")
-        print(f"Exception Type: {type(e).__name__}")
-        print(f"Exception Message: {str(e)}")
-        print("Full Traceback:")
-        print("".join(tb))
-        print("=" * 60)
-        return jsonify({"status": "error", "message": "Internal server error"}), 500
+        print("\n========== UNHANDLED EXCEPTION ==========")
+        traceback.print_exc()
+        print("ERROR:", str(e))
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
     return app
 
