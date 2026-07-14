@@ -107,7 +107,20 @@ export function generateBookingReceipt(booking) {
 
   addRow('Property:', booking.propertyTitle || booking.property_title || 'N/A')
   addRow('Address:', booking.propertyAddress || booking.property_address || 'N/A')
-  addRow('Host:', booking.hostName || booking.host_name || 'N/A')
+  y += 2
+
+  doc.setTextColor(DARK.r, DARK.g, DARK.b)
+  doc.setFontSize(11)
+  doc.setFont('helvetica', 'bold')
+  doc.text('HOST INFORMATION', 20, y)
+  y += 2
+  doc.setDrawColor(BRAND.r, BRAND.g, BRAND.b)
+  doc.line(20, y, w - 20, y)
+  y += 8
+
+  addRow('Host Name:', booking.hostName || booking.host_name || 'N/A')
+  addRow('Host Email:', booking.hostEmail || booking.host_email || 'N/A')
+  addRow('Host Phone:', booking.hostPhone || booking.host_phone || 'Not Available')
   y += 2
 
   doc.setTextColor(DARK.r, DARK.g, DARK.b)

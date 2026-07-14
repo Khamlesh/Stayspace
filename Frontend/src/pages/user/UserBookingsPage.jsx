@@ -262,7 +262,8 @@ function BookingCard({ booking: b, onCancel, cancellingId, onSelect }) {
                   bookingId: b.id, transactionId: b.transaction_id, amount: b.total_price,
                   nights: b.nights, paymentMethod: b.payment_method, propertyTitle: b.property_title,
                   propertyAddress: b.property_address, checkInDate: b.check_in, checkOutDate: b.check_out,
-                  guests: b.guests_count, status: b.status, guest_name: b.guest_name, host_name: b.host_name,
+                  guests: b.guests_count, status: b.status, guest_name: b.guest_name,
+                  host_name: b.host_name, host_email: b.host_email, host_phone: b.host_phone,
                   bookingDate: b.created_at
                 })}
                 className="text-xs font-semibold text-primary hover:text-primary-hover bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1"
@@ -337,6 +338,12 @@ function BookingDetailModal({ booking: b, onClose, onCancel, cancellingId, onLea
               <Info label="Location" value={b.property_address} />
             </Section>
 
+            <Section title="Host Information">
+              <Info label="Host Name" value={b.host_name} />
+              <Info label="Host Email" value={b.host_email} />
+              <Info label="Host Phone" value={b.host_phone || 'Not Available'} />
+            </Section>
+
             <Section title="Booking Details">
               <Info label="Check-in" value={b.check_in} />
               <Info label="Check-out" value={b.check_out} />
@@ -365,7 +372,8 @@ function BookingDetailModal({ booking: b, onClose, onCancel, cancellingId, onLea
                   bookingId: b.id, transactionId: b.transaction_id, amount: b.total_price,
                   nights, paymentMethod: b.payment_method, propertyTitle: b.property_title,
                   propertyAddress: b.property_address, checkInDate: b.check_in, checkOutDate: b.check_out,
-                  guests: b.guests_count, status: b.status, guest_name: b.guest_name, host_name: b.host_name,
+                  guests: b.guests_count, status: b.status, guest_name: b.guest_name,
+                  host_name: b.host_name, host_email: b.host_email, host_phone: b.host_phone,
                   bookingDate: b.created_at
                 })}
                 className="flex-1 px-4 py-2.5 text-sm font-semibold text-primary bg-primary/10 hover:bg-primary/20 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5"

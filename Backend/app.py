@@ -2348,9 +2348,13 @@ def create_app() -> Flask:
                        b.guests_count, b.special_requests, b.created_at,
                        p.id AS property_id, p.title AS property_title,
                        p.address AS property_address, p.image_url, p.property_type,
-                       pay.payment_method, pay.transaction_id, pay.amount AS payment_amount
+                       pay.payment_method, pay.transaction_id, pay.amount AS payment_amount,
+                       host_user.name AS host_name, host_user.email AS host_email,
+                       COALESCE(NULLIF(h.phone, ''), 'Not Available') AS host_phone
                 FROM bookings b
                 JOIN properties p ON p.id = b.property_id
+                JOIN hosts h ON h.id = p.host_id
+                JOIN users host_user ON host_user.id = h.user_id
                 LEFT JOIN payments pay ON pay.booking_id = b.id
                 WHERE b.guest_id = %s
                 ORDER BY b.created_at DESC
