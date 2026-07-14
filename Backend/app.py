@@ -3,6 +3,7 @@ import os
 import subprocess
 import hashlib
 import secrets
+import traceback
 from pathlib import Path
 
 from flask import Flask, jsonify, request
@@ -3582,6 +3583,20 @@ def create_app() -> Flask:
     # ──────────────────────────────────────────────
     # ADMIN – Bookings (already exists, kept as-is)
     # ──────────────────────────────────────────────
+
+    @app.errorhandler(Exception)
+    def handle_exception(e):
+        tb = traceback.format_exception(type(e), e, e.__traceback__)
+        print("=" * 60)
+        print("UNHANDLED EXCEPTION")
+        print(f"Route: {request.url}")
+        print(f"Method: {request.method}")
+        print(f"Exception Type: {type(e).__name__}")
+        print(f"Exception Message: {str(e)}")
+        print("Full Traceback:")
+        print("".join(tb))
+        print("=" * 60)
+        return jsonify({"status": "error", "message": "Internal server error"}), 500
 
     return app
 
