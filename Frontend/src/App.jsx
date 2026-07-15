@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { Toaster } from 'react-hot-toast'
 import { AuthProvider } from './context/AuthContext'
 import Layout from './components/Layout'
 import Landing from './pages/Landing'
@@ -53,6 +54,7 @@ import './index.css'
 function App() {
   return (
     <Router>
+      <Toaster position="bottom-center" toastOptions={{ duration: 3000, style: { borderRadius: '12px', fontSize: '14px' } }} />
       <AuthProvider>
         <Routes>
           <Route path="/" element={<Layout><Landing /></Layout>} />

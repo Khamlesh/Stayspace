@@ -14,10 +14,9 @@ const typeImages = {
   default: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=600&q=80',
 }
 
-const PropertyCard = ({ property }) => {
+const PropertyCard = ({ property, isWishlisted = false, onToggleWishlist, wishlistLoading = false }) => {
   const { id, title, address, price_per_night, max_guests, average_rating, review_count, image_url, property_type, bedrooms, bathrooms, beds } = property
   const [imgError, setImgError] = useState(false)
-  const [liked, setLiked] = useState(false)
 
   const fallbackImg = typeImages[property_type] || typeImages.default
   const showImage = image_url && !imgError
@@ -44,10 +43,15 @@ const PropertyCard = ({ property }) => {
 
           {/* Wishlist Button */}
           <button
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setLiked(!liked) }}
-            className="absolute top-3 right-3 w-9 h-9 bg-white/90 backdrop-blur-sm rounded-full flex items-center justify-center hover:bg-white transition-all duration-300 hover:scale-110 shadow-soft"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleWishlist?.(id) }}
+            disabled={wishlistLoading}
+            className="absolute top-3 right-3 w-9 h-9 bg-white/90 backdrop-blur-sm rounded-full flex items-center justify-center hover:bg-white transition-all duration-300 hover:scale-110 shadow-soft disabled:opacity-50 disabled:hover:scale-100"
           >
-            <HiOutlineHeart className={`w-5 h-5 transition-colors duration-300 ${liked ? 'text-primary fill-primary' : 'text-secondary-text'}`} />
+            {wishlistLoading ? (
+              <div className="w-4 h-4 border-2 border-gray-300 border-t-primary rounded-full animate-spin" />
+            ) : (
+              <HiOutlineHeart className={`w-5 h-5 transition-colors duration-300 ${isWishlisted ? 'text-primary fill-primary' : 'text-secondary-text'}`} />
+            )}
           </button>
 
           {/* Property Type Badge */}

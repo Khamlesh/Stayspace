@@ -3,11 +3,14 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { propertiesAPI } from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 import { formatRupees } from '../utils/currency'
+import userAPI from '../api/userApi'
+import toast from 'react-hot-toast'
 import AvailabilityCalendar from '../components/AvailabilityCalendar'
+import { HiOutlineHeart, HiHeart, HiOutlineCalendarDays } from 'react-icons/hi2'
 
 const PropertyDetails = () => {
   const { id } = useParams()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuth()
   const navigate = useNavigate()
   const [property, setProperty] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -19,6 +22,8 @@ const PropertyDetails = () => {
   const [blockedRanges, setBlockedRanges] = useState([])
   const [dateError, setDateError] = useState('')
   const [availLoading, setAvailLoading] = useState(true)
+  const [isWishlisted, setIsWishlisted] = useState(false)
+  const [wishlistLoading, setWishlistLoading] = useState(false)
 
   useEffect(() => {
     loadPropertyDetails()
@@ -53,6 +58,35 @@ const PropertyDetails = () => {
     }
   }
 
+  useEffect(() => {
+    if (isAuthenticated && user?.role === 'Guest') {
+      userAPI.checkWishlist(id)
+        .then(res => setIsWishlisted(res.data?.data?.is_wishlisted === true))
+        .catch(() => {})
+    }
+  }, [id, isAuthenticated])
+
+  const toggleWishlist = async () => {
+    if (wishlistLoading) return
+    const previous = isWishlisted
+    setWishlistLoading(true)
+    setIsWishlisted(!previous)
+    try {
+      if (previous) {
+        await userAPI.removeFromWishlist(id)
+        toast.success('Removed from wishlist')
+      } else {
+        await userAPI.addToWishlist(id)
+        toast.success('Added to wishlist')
+      }
+    } catch {
+      setIsWishlisted(previous)
+      toast.error('Failed to update wishlist')
+    } finally {
+      setWishlistLoading(false)
+    }
+  }
+
   const handleDateSelect = (dateStr, endDateOrError) => {
     if (endDateOrError === 'overlap') {
       setDateError('Selected dates overlap with an existing booking or blocked period')
@@ -62,15 +96,14 @@ const PropertyDetails = () => {
       setCheckInDate(dateStr)
       setCheckOutDate('')
       setDateError('')
+    } else if (dateStr < checkInDate) {
+      setCheckInDate(dateStr)
+      setCheckOutDate('')
+    } else if (dateStr === checkInDate) {
+      return
     } else {
-      if (dateStr <= checkInDate) {
-        setCheckInDate(dateStr)
-        setCheckOutDate('')
-      } else {
-        setCheckInDate(checkInDate)
-        setCheckOutDate(dateStr)
-        setDateError('')
-      }
+      setCheckOutDate(dateStr)
+      setDateError('')
     }
   }
 
@@ -157,6 +190,22 @@ const PropertyDetails = () => {
             </div>
             <div className="text-secondary-text text-sm">({property.review_count || 0} reviews)</div>
             <div className="text-secondary-text text-sm">• {property.max_guests} guests max</div>
+            {isAuthenticated && user?.role === 'Guest' && (
+              <button
+                onClick={toggleWishlist}
+                disabled={wishlistLoading}
+                className="ml-auto p-2 rounded-xl hover:bg-divider transition-colors disabled:opacity-50"
+                title={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+              >
+                {wishlistLoading ? (
+                  <div className="w-6 h-6 border-2 border-gray-300 border-t-primary rounded-full animate-spin" />
+                ) : isWishlisted ? (
+                  <HiHeart className="w-6 h-6 text-red-500" />
+                ) : (
+                  <HiOutlineHeart className="w-6 h-6 text-secondary-text hover:text-red-400" />
+                )}
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-4 gap-4 mb-8 pb-8 border-b border-divider">
@@ -227,22 +276,6 @@ const PropertyDetails = () => {
             </div>
           )}
 
-          {/* Availability Calendar Section */}
-          <div className="mb-8">
-            <h2 className="text-xl font-bold mb-3 text-main-text">Availability</h2>
-            <div className="bg-white rounded-card shadow-card border border-divider p-5">
-              <AvailabilityCalendar
-                bookedRanges={bookedRanges}
-                blockedRanges={blockedRanges}
-                selectedCheckIn={checkInDate}
-                selectedCheckOut={checkOutDate}
-                onDateSelect={handleDateSelect}
-                mode="guest"
-                loading={availLoading}
-              />
-            </div>
-          </div>
-
           <div>
             <h2 className="text-xl font-bold mb-3 text-main-text">Reviews</h2>
             <div className="space-y-3">
@@ -291,10 +324,15 @@ const PropertyDetails = () => {
                   readOnly
                   className="input-field text-sm bg-background cursor-pointer"
                 />
-                <p className="text-[10px] text-secondary-text mt-1">Select dates on the calendar below</p>
               </div>
               {dateError && (
                 <p className="text-xs text-danger mt-1">{dateError}</p>
+              )}
+              {checkInDate && !checkOutDate && (
+                <p className="text-[10px] text-primary font-medium flex items-center gap-1">
+                  <HiOutlineCalendarDays className="w-3 h-3" />
+                  Now select your check-out date
+                </p>
               )}
               <div>
                 <label className="block text-xs font-medium text-secondary-text mb-1">Guests</label>

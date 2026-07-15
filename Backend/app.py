@@ -219,6 +219,9 @@ ALTER TABLE properties ADD COLUMN nearby_location VARCHAR(200) DEFAULT '' AFTER 
 ALTER TABLE hosts ADD COLUMN gender VARCHAR(20) DEFAULT '' AFTER is_approved;
 ALTER TABLE hosts ADD COLUMN phone VARCHAR(20) DEFAULT '' AFTER gender;
 ALTER TABLE hosts ADD COLUMN city VARCHAR(100) DEFAULT '' AFTER phone;
+ALTER TABLE bookings ADD COLUMN cancelled_by VARCHAR(20) DEFAULT '' AFTER status;
+ALTER TABLE bookings ADD COLUMN cancellation_reason TEXT NULL AFTER cancelled_by;
+ALTER TABLE bookings ADD COLUMN cancelled_at TIMESTAMP NULL AFTER cancellation_reason;
 
 -- 16. password_reset_tokens Table
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
@@ -259,6 +262,28 @@ CREATE TABLE IF NOT EXISTS blocked_dates (
     FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE,
     INDEX idx_bd_property (property_id),
     INDEX idx_bd_dates (start_date, end_date)
+) ENGINE=InnoDB;
+
+-- 19. booking_modifications Table
+CREATE TABLE IF NOT EXISTS booking_modifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT NOT NULL,
+    old_check_in DATE NOT NULL,
+    old_check_out DATE NOT NULL,
+    new_check_in DATE NOT NULL,
+    new_check_out DATE NOT NULL,
+    old_guest_count INT NOT NULL,
+    new_guest_count INT NOT NULL,
+    old_special_request TEXT,
+    new_special_request TEXT,
+    status ENUM('Pending', 'Approved', 'Rejected') DEFAULT 'Pending',
+    requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at TIMESTAMP NULL,
+    reviewed_by VARCHAR(100) DEFAULT '',
+    host_comments TEXT,
+    FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
+    INDEX idx_bm_booking (booking_id),
+    INDEX idx_bm_status (status)
 ) ENGINE=InnoDB;
 """
 
@@ -2634,7 +2659,7 @@ def create_app() -> Flask:
                 conn.close()
                 return jsonify({"status": "error", "message": f"Cannot cancel a booking with status '{booking['status']}'"}), 400
 
-            cursor.execute("UPDATE bookings SET status = 'Cancelled' WHERE id = %s", (booking_id,))
+            cursor.execute("UPDATE bookings SET status = 'Cancelled', cancelled_by = 'Guest', cancelled_at = NOW() WHERE id = %s", (booking_id,))
 
             _log_timeline_event(cursor, booking_id, 'cancelled', 'Booking cancelled by guest', 'Guest', guest.get('name', ''),
                                 {'old_status': booking['status'], 'new_status': 'Cancelled'})
@@ -2700,7 +2725,10 @@ def create_app() -> Flask:
                 conn.close()
                 return jsonify({"status": "error", "message": f"Cannot {action} a booking with status '{booking['status']}'"}), 400
 
-            cursor.execute("UPDATE bookings SET status = %s WHERE id = %s", (new_status, booking_id))
+            if action == 'cancel':
+                cursor.execute("UPDATE bookings SET status = %s, cancelled_by = 'Host', cancelled_at = NOW() WHERE id = %s", (new_status, booking_id))
+            else:
+                cursor.execute("UPDATE bookings SET status = %s WHERE id = %s", (new_status, booking_id))
 
             action_labels = {
                 'confirm': 'Booking confirmed by host',
@@ -2807,6 +2835,380 @@ def create_app() -> Flask:
             return jsonify({"status": "success", "data": events}), 200
 
         except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # BOOKING SYSTEM – Modification Request
+    # ──────────────────────────────────────────────
+    @app.post("/api/bookings/modify/request")
+    def request_modification():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+
+        booking_id = body.get('booking_id')
+        new_check_in = body.get('new_check_in', '').strip()
+        new_check_out = body.get('new_check_out', '').strip()
+        new_guests = body.get('new_guests')
+        new_special = body.get('new_special_request', '').strip()
+
+        if not booking_id or not new_check_in or not new_check_out:
+            return jsonify({"status": "error", "message": "booking_id, new_check_in, and new_check_out are required"}), 400
+
+        from datetime import datetime as _dt
+        try:
+            nci = _dt.strptime(new_check_in, '%Y-%m-%d').date()
+            nco = _dt.strptime(new_check_out, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({"status": "error", "message": "Invalid date format (use YYYY-MM-DD)"}), 400
+
+        if nco <= nci:
+            return jsonify({"status": "error", "message": "Check-out must be after check-in"}), 400
+
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            conn.start_transaction()
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute(
+                "SELECT id, status, property_id, guest_id, check_in, check_out, guests_count, special_requests FROM bookings WHERE id = %s AND guest_id = %s FOR UPDATE",
+                (booking_id, guest['guest_id'])
+            )
+            booking = cursor.fetchone()
+            if not booking:
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Booking not found"}), 404
+
+            if booking['status'] != 'Confirmed':
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": f"Cannot modify a booking with status '{booking['status']}'"}), 400
+
+            cursor.execute(
+                "SELECT COUNT(*) AS cnt FROM booking_modifications WHERE booking_id = %s AND status = 'Pending'",
+                (booking_id,)
+            )
+            if cursor.fetchone()['cnt'] > 0:
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "You already have a pending modification request for this booking"}), 409
+
+            if _check_overlap(cursor, booking['property_id'], new_check_in, new_check_out):
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Requested dates are unavailable (conflict with existing booking or blocked dates)"}), 409
+
+            if new_guests:
+                cursor.execute("SELECT max_guests FROM properties WHERE id = %s", (booking['property_id'],))
+                prop = cursor.fetchone()
+                if prop and int(new_guests) > prop['max_guests']:
+                    cursor.close(); conn.close()
+                    return jsonify({"status": "error", "message": f"Maximum {prop['max_guests']} guests allowed"}), 400
+
+            cursor.execute(
+                """INSERT INTO booking_modifications
+                   (booking_id, old_check_in, old_check_out, new_check_in, new_check_out,
+                    old_guest_count, new_guest_count, old_special_request, new_special_request)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (booking_id, str(booking['check_in']), str(booking['check_out']),
+                 new_check_in, new_check_out,
+                 booking['guests_count'], int(new_guests) if new_guests else booking['guests_count'],
+                 booking['special_requests'] or '', new_special or booking['special_requests'] or '')
+            )
+
+            _log_timeline_event(cursor, booking_id, 'modification_requested',
+                f'Modification requested: {new_check_in} to {new_check_out}, {new_guests or booking["guests_count"]} guests',
+                'Guest', guest.get('name', ''),
+                {'old_check_in': str(booking['check_in']), 'old_check_out': str(booking['check_out']),
+                 'new_check_in': new_check_in, 'new_check_out': new_check_out})
+
+            host_user_id = _get_property_owner_user_id(cursor, booking['property_id'])
+            if host_user_id:
+                _create_notification(cursor, host_user_id,
+                    f"Booking #{booking_id}: Guest requested a modification. Please review.")
+
+            _create_notification(cursor, guest['id'],
+                f"Your modification request for booking #{booking_id} has been submitted.")
+
+            conn.commit()
+            cursor.close(); conn.close()
+            return jsonify({"status": "success", "message": "Modification request submitted"}), 201
+
+        except Exception as e:
+            try: conn.rollback()
+            except: pass
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # BOOKING SYSTEM – Modification Action (Host)
+    # ──────────────────────────────────────────────
+    @app.post("/api/bookings/modify/action")
+    def modification_action():
+        body = request.get_json(silent=True) or {}
+        host, error = _host_guard(body)
+        if error:
+            return error
+
+        modification_id = body.get('modification_id')
+        action = body.get('action')
+        comments = body.get('comments', '').strip()
+
+        if not modification_id or action not in ('approve', 'reject'):
+            return jsonify({"status": "error", "message": "modification_id and action (approve/reject) required"}), 400
+
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            conn.start_transaction()
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute(
+                """SELECT bm.*, b.status AS booking_status, b.property_id, b.guest_id
+                   FROM booking_modifications bm
+                   JOIN bookings b ON b.id = bm.booking_id
+                   JOIN properties p ON p.id = b.property_id
+                   WHERE bm.id = %s AND p.host_id = %s AND bm.status = 'Pending' FOR UPDATE""",
+                (modification_id, host['host_id'])
+            )
+            mod = cursor.fetchone()
+            if not mod:
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Modification request not found or already processed"}), 404
+
+            if mod['booking_status'] != 'Confirmed':
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": f"Booking is no longer Confirmed (status: {mod['booking_status']})"}), 400
+
+            if action == 'approve':
+                if _check_overlap(cursor, mod['property_id'], str(mod['new_check_in']), str(mod['new_check_out']), exclude_booking_id=mod['booking_id']):
+                    cursor.close(); conn.close()
+                    return jsonify({"status": "error", "message": "Cannot approve: requested dates now conflict with another booking"}), 409
+
+                cursor.execute(
+                    """UPDATE bookings SET check_in = %s, check_out = %s, guests_count = %s, special_requests = %s
+                       WHERE id = %s""",
+                    (mod['new_check_in'], mod['new_check_out'], mod['new_guest_count'],
+                     mod['new_special_request'] or None, mod['booking_id'])
+                )
+                cursor.execute(
+                    "UPDATE booking_modifications SET status = 'Approved', reviewed_at = NOW(), reviewed_by = %s, host_comments = %s WHERE id = %s",
+                    (host.get('name', ''), comments or None, modification_id)
+                )
+                _log_timeline_event(cursor, mod['booking_id'], 'modification_approved',
+                    f'Modification approved: {mod["new_check_in"]} to {mod["new_check_out"]}',
+                    'Host', host.get('name', ''),
+                    {'new_check_in': str(mod['new_check_in']), 'new_check_out': str(mod['new_check_out']),
+                     'new_guests': mod['new_guest_count']})
+            else:
+                cursor.execute(
+                    "UPDATE booking_modifications SET status = 'Rejected', reviewed_at = NOW(), reviewed_by = %s, host_comments = %s WHERE id = %s",
+                    (host.get('name', ''), comments or None, modification_id)
+                )
+                _log_timeline_event(cursor, mod['booking_id'], 'modification_rejected',
+                    f'Modification rejected{": " + comments if comments else ""}',
+                    'Host', host.get('name', ''), {'reason': comments})
+
+            guest_user_cursor = conn.cursor(dictionary=True)
+            guest_user_cursor.execute("SELECT user_id FROM guests WHERE id = %s", (mod['guest_id'],))
+            guest_user = guest_user_cursor.fetchone()
+            guest_user_cursor.close()
+
+            if guest_user:
+                msg = f"Your modification request for booking #{mod['booking_id']} has been {'approved' if action == 'approve' else 'rejected'}."
+                if comments:
+                    msg += f" Host comment: {comments}"
+                _create_notification(cursor, guest_user['user_id'], msg)
+
+            conn.commit()
+            cursor.close(); conn.close()
+            return jsonify({"status": "success", "message": f"Modification {action}d"}), 200
+
+        except Exception as e:
+            try: conn.rollback()
+            except: pass
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # BOOKING SYSTEM – Get Modifications
+    # ──────────────────────────────────────────────
+    @app.post("/api/bookings/modifications")
+    def get_modifications():
+        body = request.get_json(silent=True) or {}
+        token = body.get('token', '') or request.headers.get('X-Auth-Token', '')
+        if not token:
+            return jsonify({"status": "error", "message": "Auth required"}), 401
+
+        booking_id = body.get('booking_id')
+        if not booking_id:
+            return jsonify({"status": "error", "message": "booking_id required"}), 400
+
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute(
+                "SELECT id, guest_id, property_id FROM bookings WHERE id = %s", (booking_id,)
+            )
+            booking = cursor.fetchone()
+            if not booking:
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Booking not found"}), 404
+
+            cursor.execute(
+                """SELECT u.role, g.id AS guest_id, h.id AS host_id
+                   FROM sessions s JOIN users u ON s.user_id = u.id
+                   LEFT JOIN guests g ON g.user_id = u.id
+                   LEFT JOIN hosts h ON h.user_id = u.id
+                   WHERE s.session_token = %s AND s.expires_at > NOW()""",
+                (token,)
+            )
+            user_row = cursor.fetchone()
+            is_admin = user_row and user_row['role'] == 'Admin'
+            is_guest = user_row and user_row['role'] == 'Guest' and user_row['guest_id'] == booking['guest_id']
+            is_host = False
+            if user_row and user_row['role'] == 'Host' and user_row['host_id']:
+                cursor.execute("SELECT id FROM properties WHERE id = %s AND host_id = %s",
+                               (booking['property_id'], user_row['host_id']))
+                is_host = cursor.fetchone() is not None
+
+            if not is_guest and not is_host and not is_admin:
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+            cursor.execute(
+                """SELECT * FROM booking_modifications WHERE booking_id = %s ORDER BY requested_at DESC""",
+                (booking_id,)
+            )
+            mods = cursor.fetchall()
+            for m in mods:
+                for k in ('old_check_in', 'new_check_in', 'old_check_out', 'new_check_out'):
+                    if m.get(k):
+                        m[k] = str(m[k])
+                if m.get('requested_at'):
+                    m['requested_at'] = str(m['requested_at'])
+                if m.get('reviewed_at'):
+                    m['reviewed_at'] = str(m['reviewed_at'])
+
+            cursor.close(); conn.close()
+            return jsonify({"status": "success", "data": mods}), 200
+
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # BOOKING SYSTEM – Smart Cancellation
+    # ──────────────────────────────────────────────
+    @app.post("/api/bookings/cancel")
+    def smart_cancel():
+        body = request.get_json(silent=True) or {}
+        token = body.get('token', '') or request.headers.get('X-Auth-Token', '')
+        if not token:
+            return jsonify({"status": "error", "message": "Auth required"}), 401
+
+        booking_id = body.get('booking_id')
+        reason = body.get('reason', '').strip()
+        if not booking_id:
+            return jsonify({"status": "error", "message": "booking_id required"}), 400
+
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            conn.start_transaction()
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute(
+                """SELECT u.role, g.id AS guest_id, h.id AS host_id
+                   FROM sessions s JOIN users u ON s.user_id = u.id
+                   LEFT JOIN guests g ON g.user_id = u.id
+                   LEFT JOIN hosts h ON h.user_id = u.id
+                   WHERE s.session_token = %s AND s.expires_at > NOW()""",
+                (token,)
+            )
+            user_row = cursor.fetchone()
+            if not user_row:
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Invalid session"}), 401
+
+            is_admin = user_row['role'] == 'Admin'
+            is_guest = user_row['role'] == 'Guest'
+            is_host = user_row['role'] == 'Host'
+
+            cursor.execute(
+                """SELECT b.id, b.status, b.property_id, b.guest_id
+                   FROM bookings b WHERE b.id = %s FOR UPDATE""",
+                (booking_id,)
+            )
+            booking = cursor.fetchone()
+            if not booking:
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Booking not found"}), 404
+
+            if is_guest:
+                if booking['guest_id'] != user_row['guest_id']:
+                    cursor.close(); conn.close()
+                    return jsonify({"status": "error", "message": "Unauthorized"}), 403
+                if booking['status'] not in ('Pending', 'Confirmed'):
+                    cursor.close(); conn.close()
+                    return jsonify({"status": "error", "message": f"Cannot cancel a booking with status '{booking['status']}'"}), 400
+                cancelled_by = 'Guest'
+            elif is_host:
+                cursor.execute("SELECT id FROM properties WHERE id = %s AND host_id = %s",
+                               (booking['property_id'], user_row['host_id']))
+                if not cursor.fetchone():
+                    cursor.close(); conn.close()
+                    return jsonify({"status": "error", "message": "Unauthorized"}), 403
+                if booking['status'] == 'Completed':
+                    cursor.close(); conn.close()
+                    return jsonify({"status": "error", "message": "Cannot cancel a completed booking"}), 400
+                if booking['status'] == 'Cancelled':
+                    cursor.close(); conn.close()
+                    return jsonify({"status": "error", "message": "Booking is already cancelled"}), 400
+                cancelled_by = 'Host'
+            elif is_admin:
+                if booking['status'] in ('Cancelled', 'Completed'):
+                    cursor.close(); conn.close()
+                    return jsonify({"status": "error", "message": f"Cannot cancel a booking with status '{booking['status']}'"}), 400
+                cancelled_by = 'Admin'
+            else:
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+            old_status = booking['status']
+            cursor.execute(
+                """UPDATE bookings SET status = 'Cancelled', cancelled_by = %s, cancellation_reason = %s, cancelled_at = NOW()
+                   WHERE id = %s""",
+                (cancelled_by, reason or None, booking_id)
+            )
+
+            label_map = {'Guest': 'Booking cancelled by guest', 'Host': 'Booking cancelled by host', 'Admin': 'Booking cancelled by admin'}
+            _log_timeline_event(cursor, booking_id, 'cancelled', label_map[cancelled_by], cancelled_by,
+                user_row.get('name', cancelled_by) if is_guest else (user_row.get('name', '') if is_host else 'Admin'),
+                {'old_status': old_status, 'new_status': 'Cancelled', 'reason': reason, 'cancelled_by': cancelled_by})
+
+            host_user_id = _get_property_owner_user_id(cursor, booking['property_id'])
+            if host_user_id and cancelled_by != 'Host':
+                _create_notification(cursor, host_user_id, f"Booking #{booking_id} has been cancelled by the {cancelled_by.lower()}.")
+
+            if is_guest:
+                _create_notification(cursor, user_row['guest_id'], f"Your booking #{booking_id} has been cancelled.")
+            elif is_host:
+                guest_user_cursor = conn.cursor(dictionary=True)
+                guest_user_cursor.execute("SELECT user_id FROM guests WHERE id = %s", (booking['guest_id'],))
+                gu = guest_user_cursor.fetchone()
+                guest_user_cursor.close()
+                if gu:
+                    _create_notification(cursor, gu['user_id'], f"Your booking #{booking_id} has been cancelled by the host.")
+
+            admin_cursor = conn.cursor(dictionary=True)
+            admin_cursor.execute("SELECT id FROM users WHERE role = 'Admin' LIMIT 1")
+            admin_row = admin_cursor.fetchone()
+            admin_cursor.close()
+            if admin_row and cancelled_by != 'Admin':
+                _create_notification(cursor, admin_row['id'], f"Booking #{booking_id} has been cancelled by {cancelled_by}.")
+
+            conn.commit()
+            cursor.close(); conn.close()
+            return jsonify({"status": "success", "message": f"Booking cancelled by {cancelled_by.lower()}"}), 200
+
+        except Exception as e:
+            try: conn.rollback()
+            except: pass
             return jsonify({"status": "error", "message": str(e)}), 500
 
     # ──────────────────────────────────────────────
@@ -3863,7 +4265,10 @@ def create_app() -> Flask:
                 conn.close()
                 return jsonify({"status": "error", "message": f"Cannot {action} a booking with status '{booking['status']}'"}), 400
 
-            cursor.execute("UPDATE bookings SET status = %s WHERE id = %s", (new_status, booking_id))
+            if action == 'cancel':
+                cursor.execute("UPDATE bookings SET status = %s, cancelled_by = 'Admin', cancelled_at = NOW() WHERE id = %s", (new_status, booking_id))
+            else:
+                cursor.execute("UPDATE bookings SET status = %s WHERE id = %s", (new_status, booking_id))
 
             action_labels = {
                 'confirm': 'Booking confirmed by admin',

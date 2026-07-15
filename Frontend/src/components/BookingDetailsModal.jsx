@@ -4,6 +4,9 @@ import { formatRupees } from '../utils/currency'
 import { generateBookingReceipt } from '../utils/receiptGenerator'
 import { useAuth } from '../hooks/useAuth'
 import { bookingsAPI } from '../api/client'
+import BookingModificationModal from './BookingModificationModal'
+import CancellationModal from './CancellationModal'
+import ModificationHistory from './ModificationHistory'
 import {
   HiOutlineXMark,
   HiOutlineCalendarDays,
@@ -173,6 +176,12 @@ export default function BookingDetailsModal({
   const [imgErr, setImgErr] = useState(false)
   const [timeline, setTimeline] = useState([])
   const [timelineLoading, setTimelineLoading] = useState(true)
+  const [modifications, setModifications] = useState([])
+  const [modsLoading, setModsLoading] = useState(true)
+  const [showModifyModal, setShowModifyModal] = useState(false)
+  const [showCancelModal, setShowCancelModal] = useState(false)
+  const [modifyLoading, setModifyLoading] = useState(false)
+  const [cancelLoading, setCancelLoading] = useState(false)
 
   useEffect(() => {
     if (!b) return
@@ -183,7 +192,59 @@ export default function BookingDetailsModal({
       })
       .catch(() => {})
       .finally(() => setTimelineLoading(false))
+
+    setModsLoading(true)
+    bookingsAPI.getModifications(b.id)
+      .then(res => {
+        if (res.data.status === 'success') setModifications(res.data.data || [])
+      })
+      .catch(() => {})
+      .finally(() => setModsLoading(false))
   }, [b?.id])
+
+  const pendingMod = modifications.find(m => m.status === 'Pending')
+
+  const handleModifySubmit = async (data) => {
+    setModifyLoading(true)
+    try {
+      await bookingsAPI.modifyRequest(data)
+      setShowModifyModal(false)
+      const res = await bookingsAPI.getModifications(b.id)
+      if (res.data.status === 'success') setModifications(res.data.data || [])
+      const tl = await bookingsAPI.getTimeline(b.id)
+      if (tl.data.status === 'success') setTimeline(tl.data.data || [])
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to submit modification request')
+    } finally {
+      setModifyLoading(false)
+    }
+  }
+
+  const handleCancelSubmit = async (data) => {
+    setCancelLoading(true)
+    try {
+      await bookingsAPI.smartCancel(data)
+      setShowCancelModal(false)
+      onClose()
+      if (onCancel) onCancel(b.id)
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to cancel booking')
+    } finally {
+      setCancelLoading(false)
+    }
+  }
+
+  const handleModAction = async (modId, action, comments = '') => {
+    try {
+      await bookingsAPI.modifyAction({ modification_id: modId, action, comments })
+      const res = await bookingsAPI.getModifications(b.id)
+      if (res.data.status === 'success') setModifications(res.data.data || [])
+      const tl = await bookingsAPI.getTimeline(b.id)
+      if (tl.data.status === 'success') setTimeline(tl.data.data || [])
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to process modification')
+    }
+  }
 
   if (!b) return null
 
@@ -392,7 +453,7 @@ export default function BookingDetailsModal({
                       <ActionButton
                         icon={HiOutlineXCircle}
                         label="Reject"
-                        onClick={() => { onAction(b.id, 'cancel'); onClose() }}
+                        onClick={() => setShowCancelModal(true)}
                         variant="danger"
                         disabled={actionLoading === `${b.id}-cancel`}
                       />
@@ -410,7 +471,7 @@ export default function BookingDetailsModal({
                       <ActionButton
                         icon={HiOutlineXCircle}
                         label="Cancel"
-                        onClick={() => { onAction(b.id, 'cancel'); onClose() }}
+                        onClick={() => setShowCancelModal(true)}
                         variant="danger"
                         disabled={actionLoading === `${b.id}-cancel`}
                       />
@@ -428,11 +489,29 @@ export default function BookingDetailsModal({
                       <ActionButton
                         icon={HiOutlineXCircle}
                         label="Cancel"
-                        onClick={() => { onAction(b.id, 'cancel'); onClose() }}
+                        onClick={() => setShowCancelModal(true)}
                         variant="danger"
                         disabled={actionLoading === `${b.id}-cancel`}
                       />
                     </>
+                  )}
+                  {pendingMod && (
+                    <div className="col-span-2 bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+                      <p className="text-xs font-medium text-amber-700">Pending Modification Request</p>
+                      <p className="text-[11px] text-amber-600">
+                        {pendingMod.new_check_in} → {pendingMod.new_check_out}, {pendingMod.new_guest_count} guests
+                      </p>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleModAction(pendingMod.id, 'approve')}
+                          className="flex-1 py-1.5 text-xs font-medium bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors">
+                          Approve
+                        </button>
+                        <button onClick={() => handleModAction(pendingMod.id, 'reject')}
+                          className="flex-1 py-1.5 text-xs font-medium bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors">
+                          Reject
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </>
               )}
@@ -447,10 +526,9 @@ export default function BookingDetailsModal({
               {role === 'guest' && canCancel && (
                 <ActionButton
                   icon={HiOutlineXCircle}
-                  label={cancellingId === b.id ? 'Cancelling...' : 'Cancel Booking'}
-                  onClick={() => onCancel(b.id)}
+                  label="Cancel Booking"
+                  onClick={() => setShowCancelModal(true)}
                   variant="danger"
-                  disabled={cancellingId === b.id}
                 />
               )}
             </div>
@@ -487,6 +565,9 @@ export default function BookingDetailsModal({
                         cancelled: 'bg-red-400',
                         checkin: 'bg-blue-400',
                         complete: 'bg-gray-400',
+                        modification_requested: 'bg-amber-400',
+                        modification_approved: 'bg-emerald-400',
+                        modification_rejected: 'bg-red-400',
                       }
                       const dotColor = colorMap[ev.event_type] || 'bg-primary'
                       return (
@@ -512,11 +593,15 @@ export default function BookingDetailsModal({
               )}
             </div>
 
-            <ComingSoonCard
-              icon={HiOutlinePencilSquare}
-              title="Modify Booking"
-              description="Change dates, guests, or special requests"
-            />
+            {role === 'guest' && b.status === 'Confirmed' && (
+              <ActionButton
+                icon={HiOutlinePencilSquare}
+                label="Modify Booking"
+                onClick={() => setShowModifyModal(true)}
+                variant="outline"
+              />
+            )}
+
             <ComingSoonCard
               icon={HiOutlineChatBubbleOvalLeftEllipsis}
               title="Contact Host"
@@ -527,6 +612,15 @@ export default function BookingDetailsModal({
               title="Directions"
               description="Get directions to the property"
             />
+
+            {/* Modification History */}
+            <div className="space-y-2 mt-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-secondary-text flex items-center gap-2">
+                <HiOutlinePencilSquare className="w-4 h-4" />
+                Modification History
+              </h3>
+              <ModificationHistory modifications={modifications} loading={modsLoading} />
+            </div>
           </div>
         </div>
 
@@ -540,6 +634,25 @@ export default function BookingDetailsModal({
           </button>
         </div>
       </div>
+
+      {showModifyModal && (
+        <BookingModificationModal
+          booking={b}
+          onClose={() => setShowModifyModal(false)}
+          onSubmit={handleModifySubmit}
+          loading={modifyLoading}
+        />
+      )}
+
+      {showCancelModal && (
+        <CancellationModal
+          booking={b}
+          role={role}
+          onClose={() => setShowCancelModal(false)}
+          onSubmit={handleCancelSubmit}
+          loading={cancelLoading}
+        />
+      )}
     </div>
   )
 }

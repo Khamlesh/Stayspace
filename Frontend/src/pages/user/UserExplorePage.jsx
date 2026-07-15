@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { propertiesAPI } from '../../api/client'
 import userAPI from '../../api/userApi'
 import { formatRupees } from '../../utils/currency'
+import toast from 'react-hot-toast'
 import {
   HiOutlineMagnifyingGlass,
   HiOutlineHeart,
@@ -55,6 +56,7 @@ const UserExplorePage = () => {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [togglingId, setTogglingId] = useState(null)
 
   const fetchProperties = useCallback(async (pageNum = 1, append = false) => {
     if (append) {
@@ -92,36 +94,42 @@ const UserExplorePage = () => {
 
   useEffect(() => {
     if (properties.length === 0) return
-    const checkAll = async () => {
-      const results = {}
-      await Promise.all(
-        properties.map(async (p) => {
-          try {
-            const res = await userAPI.checkWishlist(p.id)
-            results[p.id] = res.data?.data?.wishlisted === true
-          } catch {
-            results[p.id] = false
-          }
-        }),
-      )
-      setWishlisted(results)
+    const loadWishlistStatus = async () => {
+      try {
+        const res = await userAPI.getWishlist()
+        const wishlistIds = new Set((res.data.data || []).map(p => p.id))
+        const results = {}
+        properties.forEach(p => { results[p.id] = wishlistIds.has(p.id) })
+        setWishlisted(results)
+      } catch {
+        const empty = {}
+        properties.forEach(p => { empty[p.id] = false })
+        setWishlisted(empty)
+      }
     }
-    checkAll()
+    loadWishlistStatus()
   }, [properties])
 
   const toggleWishlist = async (e, propertyId) => {
     e.preventDefault()
     e.stopPropagation()
-    const isWishlisted = wishlisted[propertyId]
+    if (togglingId) return
+    const previousState = wishlisted[propertyId]
+    setTogglingId(propertyId)
+    setWishlisted(prev => ({ ...prev, [propertyId]: !previousState }))
     try {
-      if (isWishlisted) {
+      if (previousState) {
         await userAPI.removeFromWishlist(propertyId)
+        toast.success('Removed from wishlist')
       } else {
         await userAPI.addToWishlist(propertyId)
+        toast.success('Added to wishlist')
       }
-      setWishlisted((prev) => ({ ...prev, [propertyId]: !isWishlisted }))
-    } catch (err) {
-      console.error('Wishlist toggle failed:', err)
+    } catch {
+      setWishlisted(prev => ({ ...prev, [propertyId]: previousState }))
+      toast.error('Failed to update wishlist')
+    } finally {
+      setTogglingId(null)
     }
   }
 
@@ -390,10 +398,13 @@ const UserExplorePage = () => {
                   </p>
                   <button
                     onClick={(e) => toggleWishlist(e, property.id)}
-                    className="p-1.5 rounded-full hover:bg-red-50 transition-colors"
+                    disabled={togglingId === property.id}
+                    className="p-1.5 rounded-full hover:bg-red-50 transition-colors disabled:opacity-50"
                     aria-label={wishlisted[property.id] ? 'Remove from wishlist' : 'Add to wishlist'}
                   >
-                    {wishlisted[property.id] ? (
+                    {togglingId === property.id ? (
+                      <div className="w-5 h-5 border-2 border-gray-300 border-t-red-500 rounded-full animate-spin" />
+                    ) : wishlisted[property.id] ? (
                       <HiHeart className="w-5 h-5 text-red-500" />
                     ) : (
                       <HiOutlineHeart className="w-5 h-5 text-gray-400 hover:text-red-400" />

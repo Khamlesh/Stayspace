@@ -61,6 +61,14 @@ export const bookingsAPI = {
     apiClient.post('/guest/bookings/cancel', { booking_id: bookingId }),
   getTimeline: (bookingId) =>
     apiClient.post(`/bookings/${bookingId}/timeline`),
+  modifyRequest: (data) =>
+    apiClient.post('/bookings/modify/request', data),
+  modifyAction: (data) =>
+    apiClient.post('/bookings/modify/action', data),
+  getModifications: (bookingId) =>
+    apiClient.post('/bookings/modifications', { booking_id: bookingId }),
+  smartCancel: (data) =>
+    apiClient.post('/bookings/cancel', data),
 }
 
 export const adminAPI = {

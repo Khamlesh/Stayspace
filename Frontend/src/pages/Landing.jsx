@@ -138,7 +138,6 @@ const Landing = () => {
   const [searchCheckout, setSearchCheckout] = useState('')
   const [searchGuests, setSearchGuests] = useState('')
   const [currentTestimonial, setCurrentTestimonial] = useState(0)
-  const [wishlist, setWishlist] = useState(new Set())
   const [newsletterEmail, setNewsletterEmail] = useState('')
   const [subscribed, setSubscribed] = useState(false)
   const [showWelcome, setShowWelcome] = useState(false)
@@ -196,11 +195,6 @@ const Landing = () => {
 
   const handleDestinationClick = (dest) => { navigate(`/search?q=${encodeURIComponent(dest.name)}`) }
   const handleCategoryClick = (cat) => { navigate(`/search?q=${encodeURIComponent(cat.name)}`) }
-
-  const toggleWishlist = (e, propertyId) => {
-    e.preventDefault(); e.stopPropagation()
-    setWishlist(prev => { const next = new Set(prev); if (next.has(propertyId)) next.delete(propertyId); else next.add(propertyId); return next })
-  }
 
   const handleNewsletter = (e) => {
     e.preventDefault()
