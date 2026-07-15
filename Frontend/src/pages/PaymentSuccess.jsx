@@ -15,6 +15,11 @@ const PaymentSuccess = () => {
     serviceFee,
     paymentMethod,
     propertyTitle,
+    propertyAddress,
+    hostName,
+    hostEmail,
+    hostPhone,
+    guestName,
     checkInDate,
     checkOutDate,
     guests
@@ -120,7 +125,10 @@ const PaymentSuccess = () => {
           <button
             onClick={() => generateBookingReceipt({
               bookingId, transactionId, amount, nights, serviceFee,
-              paymentMethod, propertyTitle, checkInDate, checkOutDate, guests,
+              paymentMethod, propertyTitle, propertyAddress,
+              host_name: hostName, host_email: hostEmail, host_phone: hostPhone,
+              guest_name: guestName || user?.name,
+              checkInDate, checkOutDate, guests,
               status: 'Confirmed', bookingDate: new Date().toLocaleDateString('en-IN')
             })}
             className="btn-outline flex-1"

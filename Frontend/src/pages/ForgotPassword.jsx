@@ -6,6 +6,7 @@ import AuthLayout from '../components/AuthLayout'
 const ForgotPassword = () => {
   const [step, setStep] = useState(1)
   const [email, setEmail] = useState('')
+  const [resetToken, setResetToken] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -26,6 +27,7 @@ const ForgotPassword = () => {
     try {
       const response = await authAPI.checkEmail(email)
       if (response.data.status === 'success') {
+        setResetToken(response.data.data?.reset_token || '')
         setStep(2)
         setSuccess('Email verified. Please enter your new password.')
       } else {
@@ -56,7 +58,7 @@ const ForgotPassword = () => {
     }
     setLoading(true)
     try {
-      const response = await authAPI.forgotPassword({ email, new_password: newPassword })
+      const response = await authAPI.forgotPassword({ email, new_password: newPassword, reset_token: resetToken })
       if (response.data.status === 'success') {
         setSuccess('Password reset successfully! Redirecting to login...')
         setTimeout(() => navigate('/login'), 2000)
@@ -170,7 +172,7 @@ const ForgotPassword = () => {
 
           <button
             type="button"
-            onClick={() => { setStep(1); setEmail(''); setNewPassword(''); setConfirmPassword(''); setError(''); setSuccess('') }}
+            onClick={() => { setStep(1); setEmail(''); setResetToken(''); setNewPassword(''); setConfirmPassword(''); setError(''); setSuccess('') }}
             className="w-full py-3 bg-gray-100 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-200 active:scale-[0.98] transition-all duration-200"
           >
             Change Email

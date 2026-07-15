@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { bookingsAPI } from '../api/client'
+import { useAuth } from '../hooks/useAuth'
 import { formatRupees } from '../utils/currency'
 
 const Payment = () => {
   const navigate = useNavigate()
   const location = useLocation()
+  const { user } = useAuth()
   const state = location.state || {}
 
   const {
@@ -96,6 +98,11 @@ const Payment = () => {
             serviceFee: res.data.data.service_fee,
             paymentMethod: methodLabel,
             propertyTitle: res.data.data.property_title || propertyTitle,
+            propertyAddress: res.data.data.property_address || propertyAddress,
+            hostName: res.data.data.host_name || '',
+            hostEmail: res.data.data.host_email || '',
+            hostPhone: res.data.data.host_phone || '',
+            guestName: user?.name || '',
             checkInDate,
             checkOutDate,
             guests

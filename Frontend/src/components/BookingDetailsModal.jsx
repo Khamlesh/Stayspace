@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { formatRupees } from '../utils/currency'
 import { generateBookingReceipt } from '../utils/receiptGenerator'
+import { useAuth } from '../hooks/useAuth'
+import { bookingsAPI } from '../api/client'
 import {
   HiOutlineXMark,
   HiOutlineCalendarDays,
@@ -167,7 +169,21 @@ export default function BookingDetailsModal({
   onLeaveReview,
 }) {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [imgErr, setImgErr] = useState(false)
+  const [timeline, setTimeline] = useState([])
+  const [timelineLoading, setTimelineLoading] = useState(true)
+
+  useEffect(() => {
+    if (!b) return
+    setTimelineLoading(true)
+    bookingsAPI.getTimeline(b.id)
+      .then(res => {
+        if (res.data.status === 'success') setTimeline(res.data.data || [])
+      })
+      .catch(() => {})
+      .finally(() => setTimelineLoading(false))
+  }, [b?.id])
 
   if (!b) return null
 
@@ -190,10 +206,10 @@ export default function BookingDetailsModal({
       checkOutDate: b.check_out,
       guests: b.guests_count,
       status: b.status,
-      guest_name: b.guest_name,
-      host_name: b.host_name,
-      host_email: b.host_email,
-      host_phone: b.host_phone,
+      guest_name: b.guest_name || user?.name,
+      host_name: b.host_name || (role === 'host' ? user?.name : ''),
+      host_email: b.host_email || (role === 'host' ? user?.email : ''),
+      host_phone: b.host_phone || (role === 'host' ? user?.phone : 'Not Available'),
       bookingDate: b.created_at,
     })
   }
@@ -439,29 +455,78 @@ export default function BookingDetailsModal({
               )}
             </div>
 
-            {/* Coming Soon Features */}
+            {/* Booking Timeline */}
             <div className="space-y-2 mt-3">
-              <ComingSoonCard
-                icon={HiOutlineCalendar}
-                title="Booking Timeline"
-                description="Track every status change and event"
-              />
-              <ComingSoonCard
-                icon={HiOutlinePencilSquare}
-                title="Modify Booking"
-                description="Change dates, guests, or special requests"
-              />
-              <ComingSoonCard
-                icon={HiOutlineChatBubbleOvalLeftEllipsis}
-                title="Contact Host"
-                description="Send a message directly to your host"
-              />
-              <ComingSoonCard
-                icon={HiOutlineMap}
-                title="Directions"
-                description="Get directions to the property"
-              />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-secondary-text flex items-center gap-2">
+                <HiOutlineCalendar className="w-4 h-4" />
+                Booking Timeline
+              </h3>
+              {timelineLoading ? (
+                <div className="space-y-3 py-2">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="flex items-start gap-3 animate-pulse">
+                      <div className="w-2 h-2 rounded-full bg-divider mt-1.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <div className="h-3 w-48 bg-divider rounded" />
+                        <div className="h-2.5 w-24 bg-divider rounded mt-1.5" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : timeline.length === 0 ? (
+                <p className="text-xs text-secondary-text py-2">No timeline events recorded yet.</p>
+              ) : (
+                <div className="relative py-1">
+                  <div className="absolute left-[3px] top-1 bottom-1 w-px bg-divider" />
+                  <div className="space-y-4">
+                    {timeline.map((ev, i) => {
+                      const isLast = i === timeline.length - 1
+                      const colorMap = {
+                        created: 'bg-primary',
+                        confirmed: 'bg-emerald-400',
+                        cancelled: 'bg-red-400',
+                        checkin: 'bg-blue-400',
+                        complete: 'bg-gray-400',
+                      }
+                      const dotColor = colorMap[ev.event_type] || 'bg-primary'
+                      return (
+                        <div key={ev.id} className="flex items-start gap-3 relative">
+                          <div className={`w-2 h-2 rounded-full ${dotColor} mt-1.5 flex-shrink-0 z-10 ${isLast ? 'ring-2 ring-white' : ''}`} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-main-text leading-snug">{ev.event_label}</p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[10px] font-medium text-secondary-text">{ev.actor_role}</span>
+                              {ev.actor_name && <span className="text-[10px] text-secondary-text">·</span>}
+                              {ev.actor_name && <span className="text-[10px] text-secondary-text">{ev.actor_name}</span>}
+                              <span className="text-[10px] text-secondary-text">·</span>
+                              <span className="text-[10px] text-secondary-text">
+                                {new Date(ev.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
+
+            <ComingSoonCard
+              icon={HiOutlinePencilSquare}
+              title="Modify Booking"
+              description="Change dates, guests, or special requests"
+            />
+            <ComingSoonCard
+              icon={HiOutlineChatBubbleOvalLeftEllipsis}
+              title="Contact Host"
+              description="Send a message directly to your host"
+            />
+            <ComingSoonCard
+              icon={HiOutlineMap}
+              title="Directions"
+              description="Get directions to the property"
+            />
           </div>
         </div>
 

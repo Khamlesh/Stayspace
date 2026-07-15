@@ -37,8 +37,8 @@ export const authAPI = {
     apiClient.post('/auth/check_phone', { phone }),
   changePassword: (email, oldPassword, newPassword) =>
     apiClient.post('/auth/change_password', { email, old_password: oldPassword, new_password: newPassword }),
-  forgotPassword: ({ email, new_password }) =>
-    apiClient.post('/auth/forgot_password', { email, new_password })
+  forgotPassword: ({ email, new_password, reset_token }) =>
+    apiClient.post('/auth/forgot_password', { email, new_password, reset_token })
 }
 
 export const propertiesAPI = {
@@ -59,6 +59,8 @@ export const bookingsAPI = {
     apiClient.post('/guest/bookings'),
   cancelBooking: (bookingId) =>
     apiClient.post('/guest/bookings/cancel', { booking_id: bookingId }),
+  getTimeline: (bookingId) =>
+    apiClient.post(`/bookings/${bookingId}/timeline`),
 }
 
 export const adminAPI = {

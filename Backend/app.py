@@ -219,7 +219,34 @@ ALTER TABLE properties ADD COLUMN nearby_location VARCHAR(200) DEFAULT '' AFTER 
 ALTER TABLE hosts ADD COLUMN gender VARCHAR(20) DEFAULT '' AFTER is_approved;
 ALTER TABLE hosts ADD COLUMN phone VARCHAR(20) DEFAULT '' AFTER gender;
 ALTER TABLE hosts ADD COLUMN city VARCHAR(100) DEFAULT '' AFTER phone;
+
+-- 16. password_reset_tokens Table
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    token VARCHAR(255) NOT NULL UNIQUE,
+    expires_at TIMESTAMP NOT NULL,
+    used BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_reset_token (token)
+) ENGINE=InnoDB;
+
+-- 17. booking_timeline Table
+CREATE TABLE IF NOT EXISTS booking_timeline (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT NOT NULL,
+    event_type VARCHAR(50) NOT NULL,
+    event_label VARCHAR(200) NOT NULL,
+    actor_role ENUM('System', 'Guest', 'Host', 'Admin') DEFAULT 'System',
+    actor_name VARCHAR(100) DEFAULT '',
+    metadata_json JSON NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
+    INDEX idx_bt_booking (booking_id)
+) ENGINE=InnoDB;
 """
+
 
 def init_db_schema():
     """Execute the full schema DDL — CREATE IF NOT EXISTS is safe; ALTER TABLE silently ignores duplicate columns."""
@@ -776,16 +803,35 @@ def create_app() -> Flask:
 
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
-            cursor = conn.cursor()
+            cursor = conn.cursor(dictionary=True)
             cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
             user = cursor.fetchone()
+
+            if not user:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Email not found"}), 404
+
+            reset_token = secrets.token_urlsafe(32)
+            expires = datetime.utcnow() + timedelta(minutes=15)
+
+            cursor.execute(
+                "UPDATE password_reset_tokens SET used = TRUE WHERE user_id = %s AND used = FALSE",
+                (user['id'],)
+            )
+            cursor.execute(
+                "INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (%s, %s, %s)",
+                (user['id'], reset_token, expires)
+            )
+            conn.commit()
             cursor.close()
             conn.close()
 
-            if not user:
-                return jsonify({"status": "error", "message": "Email not found"}), 404
-
-            return jsonify({"status": "success", "message": "Email found"}), 200
+            return jsonify({
+                "status": "success",
+                "message": "Email found",
+                "data": {"reset_token": reset_token}
+            }), 200
 
         except Exception as e:
             return jsonify({
@@ -798,44 +844,61 @@ def create_app() -> Flask:
         body = request.get_json(silent=True) or {}
         email = body.get('email', '').strip()
         new_password = body.get('new_password', '').strip()
-        
-        if not email or not new_password:
-            return jsonify({"status": "error", "message": "Email and password are required"}), 400
-        
+        reset_token = body.get('reset_token', '').strip()
+
+        if not email or not new_password or not reset_token:
+            return jsonify({"status": "error", "message": "Email, new password, and reset token are required"}), 400
+
         if len(new_password) < 8:
             return jsonify({"status": "error", "message": "Password must be at least 8 characters"}), 400
-        
+
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
-            cursor = conn.cursor()
-            
-            # Check if user exists
+            cursor = conn.cursor(dictionary=True)
+
             cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
             user = cursor.fetchone()
-            
+
             if not user:
                 cursor.close()
                 conn.close()
                 return jsonify({"status": "error", "message": "Email not found"}), 404
-            
-            # Update password
+
+            cursor.execute(
+                """SELECT id FROM password_reset_tokens
+                   WHERE user_id = %s AND token = %s AND used = FALSE AND expires_at > NOW()""",
+                (user['id'], reset_token)
+            )
+            token_row = cursor.fetchone()
+
+            if not token_row:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Invalid or expired reset token"}), 400
+
             salt = generate_salt()
             password_hash = hash_password(new_password, salt)
-            
             cursor.execute(
                 "UPDATE users SET password_hash = %s, salt = %s WHERE email = %s",
                 (password_hash, salt, email)
             )
-            
+
+            cursor.execute(
+                "UPDATE password_reset_tokens SET used = TRUE WHERE id = %s",
+                (token_row['id'],)
+            )
+
+            cursor.execute("DELETE FROM sessions WHERE user_id = %s", (user['id'],))
+
             conn.commit()
             cursor.close()
             conn.close()
-            
+
             return jsonify({
                 "status": "success",
                 "message": "Password reset successfully"
             }), 200
-            
+
         except Exception as e:
             return jsonify({
                 "status": "error",
@@ -2189,6 +2252,14 @@ def create_app() -> Flask:
     def _create_notification(cursor, user_id, message):
         cursor.execute("INSERT INTO notifications (user_id, message) VALUES (%s, %s)", (user_id, message))
 
+    def _log_timeline_event(cursor, booking_id, event_type, event_label, actor_role='System', actor_name='', metadata=None):
+        import json as _json
+        meta_json = _json.dumps(metadata) if metadata else None
+        cursor.execute(
+            "INSERT INTO booking_timeline (booking_id, event_type, event_label, actor_role, actor_name, metadata_json) VALUES (%s, %s, %s, %s, %s, %s)",
+            (booking_id, event_type, event_label, actor_role, actor_name, meta_json)
+        )
+
     def _check_overlap(cursor, property_id, check_in, check_out, exclude_booking_id=None):
         sql = """
             SELECT COUNT(*) AS cnt FROM bookings
@@ -2285,6 +2356,11 @@ def create_app() -> Flask:
 
             cursor.execute("UPDATE bookings SET status = 'Confirmed' WHERE id = %s", (booking_id,))
 
+            _log_timeline_event(cursor, booking_id, 'created', f'Booking created by {guest["name"]}', 'Guest', guest['name'],
+                                {'check_in': check_in, 'check_out': check_out, 'total_price': total_price})
+            _log_timeline_event(cursor, booking_id, 'confirmed', 'Booking confirmed after payment', 'System', 'StaySpace',
+                                {'transaction_id': transaction_id, 'amount': total_price})
+
             host_user_id = _get_property_owner_user_id(cursor, property_id)
             if host_user_id:
                 _create_notification(cursor, host_user_id,
@@ -2301,11 +2377,17 @@ def create_app() -> Flask:
 
             cursor.execute(
                 """
-                SELECT p.title FROM properties p WHERE p.id = %s
+                SELECT p.title, p.address,
+                       u.name AS host_name, u.email AS host_email,
+                       COALESCE(NULLIF(ho.phone, ''), 'Not Available') AS host_phone
+                FROM properties p
+                JOIN hosts ho ON p.host_id = ho.id
+                JOIN users u ON ho.user_id = u.id
+                WHERE p.id = %s
                 """,
                 (property_id,)
             )
-            prop_title_row = cursor.fetchone()
+            prop_detail_row = cursor.fetchone()
 
             conn.commit()
             cursor.close()
@@ -2320,7 +2402,12 @@ def create_app() -> Flask:
                     "total_price": total_price,
                     "nights": nights,
                     "service_fee": service_fee,
-                    "property_title": prop_title_row['title'] if prop_title_row else '',
+                    "property_title": prop_detail_row['title'] if prop_detail_row else '',
+                    "property_address": prop_detail_row['address'] if prop_detail_row else '',
+                    "host_name": prop_detail_row['host_name'] if prop_detail_row else '',
+                    "host_email": prop_detail_row['host_email'] if prop_detail_row else '',
+                    "host_phone": prop_detail_row['host_phone'] if prop_detail_row else 'Not Available',
+                    "guest_name": guest['name'],
                     "check_in": check_in,
                     "check_out": check_out
                 }
@@ -2407,6 +2494,9 @@ def create_app() -> Flask:
 
             cursor.execute("UPDATE bookings SET status = 'Cancelled' WHERE id = %s", (booking_id,))
 
+            _log_timeline_event(cursor, booking_id, 'cancelled', 'Booking cancelled by guest', 'Guest', guest.get('name', ''),
+                                {'old_status': booking['status'], 'new_status': 'Cancelled'})
+
             host_user_id = _get_property_owner_user_id(cursor, booking['property_id'])
             if host_user_id:
                 _create_notification(cursor, host_user_id,
@@ -2470,6 +2560,15 @@ def create_app() -> Flask:
 
             cursor.execute("UPDATE bookings SET status = %s WHERE id = %s", (new_status, booking_id))
 
+            action_labels = {
+                'confirm': 'Booking confirmed by host',
+                'cancel': 'Booking cancelled by host',
+                'checkin': 'Guest checked in',
+                'complete': 'Booking marked as completed'
+            }
+            _log_timeline_event(cursor, booking_id, action, action_labels.get(action, f'Booking {action}ed'),
+                                'Host', host.get('name', ''), {'old_status': booking['status'], 'new_status': new_status})
+
             guest_user_cursor = conn.cursor(dictionary=True)
             guest_user_cursor.execute("SELECT user_id FROM guests WHERE id = %s", (booking['guest_id'],))
             guest_user = guest_user_cursor.fetchone()
@@ -2483,6 +2582,88 @@ def create_app() -> Flask:
             cursor.close()
             conn.close()
             return jsonify({"status": "success", "message": f"Booking {new_status.lower()}"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # BOOKING SYSTEM – Booking Timeline
+    # ──────────────────────────────────────────────
+    @app.post("/api/bookings/<int:booking_id>/timeline")
+    def get_booking_timeline(booking_id):
+        body = request.get_json(silent=True) or {}
+        token = body.get('token', '') or request.headers.get('X-Auth-Token', '')
+        if not token:
+            return jsonify({"status": "error", "message": "Auth required"}), 401
+
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute(
+                "SELECT id, guest_id, property_id FROM bookings WHERE id = %s",
+                (booking_id,)
+            )
+            booking = cursor.fetchone()
+            if not booking:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Booking not found"}), 404
+
+            is_guest = False
+            is_host = False
+            is_admin = False
+
+            cursor.execute(
+                """
+                SELECT u.role, g.id AS guest_id, h.id AS host_id
+                FROM sessions s
+                JOIN users u ON s.user_id = u.id
+                LEFT JOIN guests g ON g.user_id = u.id
+                LEFT JOIN hosts h ON h.user_id = u.id
+                WHERE s.session_token = %s AND s.expires_at > NOW()
+                """,
+                (token,)
+            )
+            user_row = cursor.fetchone()
+            if user_row:
+                is_admin = user_row['role'] == 'Admin'
+                is_guest = user_row['role'] == 'Guest' and user_row['guest_id'] == booking['guest_id']
+                if user_row['role'] == 'Host' and user_row['host_id']:
+                    cursor.execute("SELECT id FROM properties WHERE id = %s AND host_id = %s",
+                                   (booking['property_id'], user_row['host_id']))
+                    is_host = cursor.fetchone() is not None
+
+            if not is_guest and not is_host and not is_admin:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+            cursor.execute(
+                """
+                SELECT id, event_type, event_label, actor_role, actor_name, metadata_json, created_at
+                FROM booking_timeline
+                WHERE booking_id = %s
+                ORDER BY created_at ASC
+                """,
+                (booking_id,)
+            )
+            events = cursor.fetchall()
+            for ev in events:
+                ev['created_at'] = str(ev['created_at'])
+                if ev.get('metadata_json'):
+                    import json as _json
+                    try:
+                        ev['metadata'] = _json.loads(ev['metadata_json'])
+                    except Exception:
+                        ev['metadata'] = None
+                else:
+                    ev['metadata'] = None
+                del ev['metadata_json']
+
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": events}), 200
+
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -3541,6 +3722,15 @@ def create_app() -> Flask:
                 return jsonify({"status": "error", "message": f"Cannot {action} a booking with status '{booking['status']}'"}), 400
 
             cursor.execute("UPDATE bookings SET status = %s WHERE id = %s", (new_status, booking_id))
+
+            action_labels = {
+                'confirm': 'Booking confirmed by admin',
+                'cancel': 'Booking cancelled by admin',
+                'checkin': 'Check-in confirmed by admin',
+                'complete': 'Booking completed by admin'
+            }
+            _log_timeline_event(cursor, booking_id, action, action_labels.get(action, f'Booking {action}ed by admin'),
+                                'Admin', 'Admin', {'old_status': booking['status'], 'new_status': new_status})
 
             guest_user_cursor = conn.cursor(dictionary=True)
             guest_user_cursor.execute("SELECT user_id FROM guests WHERE id = %s", (booking['guest_id'],))
