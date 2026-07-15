@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import hostAPI from '../../api/hostApi'
-import { HiOutlinePlusCircle, HiOutlinePencilSquare, HiOutlineTrash, HiOutlineMagnifyingGlass } from 'react-icons/hi2'
+import { propertiesAPI } from '../../api/client'
+import { HiOutlinePlusCircle, HiOutlinePencilSquare, HiOutlineTrash, HiOutlineMagnifyingGlass, HiOutlineCalendarDays } from 'react-icons/hi2'
+import AvailabilityCalendar from '../../components/AvailabilityCalendar'
 
 function PropertyImage({ src, title }) {
   const [error, setError] = useState(false)
@@ -29,6 +31,11 @@ export default function HostPropertiesPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [deleteId, setDeleteId] = useState(null)
+  const [availModal, setAvailModal] = useState(null)
+  const [bookedRanges, setBookedRanges] = useState([])
+  const [blockedRanges, setBlockedRanges] = useState([])
+  const [blockedDatesList, setBlockedDatesList] = useState([])
+  const [availLoading, setAvailLoading] = useState(false)
   const navigate = useNavigate()
 
   const load = async () => {
@@ -41,6 +48,43 @@ export default function HostPropertiesPage() {
   }
 
   useEffect(() => { load() }, [])
+
+  const loadAvailability = async (propertyId) => {
+    setAvailLoading(true)
+    try {
+      const res = await propertiesAPI.getAvailability(propertyId)
+      if (res.data.status === 'success') {
+        setBookedRanges(res.data.data || [])
+        setBlockedRanges(res.data.blocked || [])
+        setBlockedDatesList(res.data.blocked || [])
+      }
+    } catch (e) { console.error(e) }
+    finally { setAvailLoading(false) }
+  }
+
+  const handleOpenAvailability = async (prop) => {
+    setAvailModal(prop)
+    await loadAvailability(prop.id)
+  }
+
+  const handleBlockDates = async (startDate, endDate, reason) => {
+    if (!availModal) return
+    try {
+      await hostAPI.blockDates(availModal.id, startDate, endDate, reason)
+      await loadAvailability(availModal.id)
+    } catch (e) {
+      console.error('Error blocking dates:', e)
+    }
+  }
+
+  const handleUnblockDate = async (blockId) => {
+    try {
+      await hostAPI.unblockDates(blockId)
+      if (availModal) await loadAvailability(availModal.id)
+    } catch (e) {
+      console.error('Error unblocking dates:', e)
+    }
+  }
 
   const handleDelete = async () => {
     if (!deleteId) return
@@ -119,6 +163,13 @@ export default function HostPropertiesPage() {
                   <HiOutlinePencilSquare className="w-3.5 h-3.5" /> Edit
                 </button>
                 <button
+                  onClick={() => handleOpenAvailability(prop)}
+                  className="flex items-center justify-center gap-1.5 py-2 px-3 text-sm font-medium text-info bg-info/10 rounded-xl hover:bg-info/20 transition-colors"
+                  title="Manage Availability"
+                >
+                  <HiOutlineCalendarDays className="w-3.5 h-3.5" />
+                </button>
+                <button
                   onClick={() => setDeleteId(prop.id)}
                   className="flex items-center justify-center gap-1.5 py-2 px-3 text-sm font-medium text-danger bg-danger/10 rounded-xl hover:bg-danger/20 transition-colors"
                 >
@@ -150,6 +201,45 @@ export default function HostPropertiesPage() {
                 Delete
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {availModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-card p-6 max-w-lg w-full shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-main-text">Manage Availability</h3>
+                <p className="text-xs text-secondary-text mt-0.5">{availModal.title}</p>
+              </div>
+              <button
+                onClick={() => { setAvailModal(null); setBookedRanges([]); setBlockedRanges([]); setBlockedDatesList([]) }}
+                className="p-1.5 rounded-lg hover:bg-divider transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            {availLoading ? (
+              <div className="space-y-3 animate-pulse">
+                <div className="h-6 w-32 bg-divider rounded" />
+                <div className="grid grid-cols-7 gap-1">
+                  {Array.from({ length: 35 }).map((_, i) => (
+                    <div key={i} className="aspect-square bg-divider rounded-lg" />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <AvailabilityCalendar
+                bookedRanges={bookedRanges}
+                blockedRanges={blockedRanges}
+                mode="host"
+                loading={false}
+                onBlockDates={handleBlockDates}
+                onUnblockDate={handleUnblockDate}
+                blockedDatesList={blockedDatesList}
+              />
+            )}
           </div>
         </div>
       )}

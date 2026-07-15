@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { propertiesAPI } from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 import { formatRupees } from '../utils/currency'
+import AvailabilityCalendar from '../components/AvailabilityCalendar'
 
 const PropertyDetails = () => {
   const { id } = useParams()
@@ -15,7 +16,9 @@ const PropertyDetails = () => {
   const [guests, setGuests] = useState(1)
   const [imgError, setImgError] = useState(false)
   const [bookedRanges, setBookedRanges] = useState([])
+  const [blockedRanges, setBlockedRanges] = useState([])
   const [dateError, setDateError] = useState('')
+  const [availLoading, setAvailLoading] = useState(true)
 
   useEffect(() => {
     loadPropertyDetails()
@@ -36,68 +39,39 @@ const PropertyDetails = () => {
   }
 
   const loadAvailability = async () => {
+    setAvailLoading(true)
     try {
       const response = await propertiesAPI.getAvailability(id)
       if (response.data.status === 'success') {
         setBookedRanges(response.data.data || [])
+        setBlockedRanges(response.data.blocked || [])
       }
     } catch (error) {
       console.error('Error loading availability:', error)
+    } finally {
+      setAvailLoading(false)
     }
   }
 
-  const isDateBooked = (dateStr) => {
-    const d = new Date(dateStr)
-    d.setHours(0, 0, 0, 0)
-    for (const range of bookedRanges) {
-      const ci = new Date(range.check_in)
-      ci.setHours(0, 0, 0, 0)
-      const co = new Date(range.check_out)
-      co.setHours(0, 0, 0, 0)
-      if (d >= ci && d < co) return true
-    }
-    return false
-  }
-
-  const isRangeAvailable = (ciStr, coStr) => {
-    const ci = new Date(ciStr)
-    ci.setHours(0, 0, 0, 0)
-    const co = new Date(coStr)
-    co.setHours(0, 0, 0, 0)
-    for (const range of bookedRanges) {
-      const bCi = new Date(range.check_in)
-      bCi.setHours(0, 0, 0, 0)
-      const bCo = new Date(range.check_out)
-      bCo.setHours(0, 0, 0, 0)
-      if (ci < bCo && co > bCi) return false
-    }
-    return true
-  }
-
-  const today = new Date().toISOString().split('T')[0]
-
-  const handleCheckInChange = (e) => {
-    const val = e.target.value
-    setCheckInDate(val)
-    setDateError('')
-    if (checkOutDate && val >= checkOutDate) {
-      setCheckOutDate('')
-    }
-  }
-
-  const handleCheckOutChange = (e) => {
-    const val = e.target.value
-    if (checkInDate && val <= checkInDate) {
-      setDateError('Check-out must be after check-in')
+  const handleDateSelect = (dateStr, endDateOrError) => {
+    if (endDateOrError === 'overlap') {
+      setDateError('Selected dates overlap with an existing booking or blocked period')
       return
     }
-    if (checkInDate && !isRangeAvailable(checkInDate, val)) {
-      setDateError('Selected dates overlap with an existing booking')
+    if (!checkInDate || (checkInDate && checkOutDate)) {
+      setCheckInDate(dateStr)
       setCheckOutDate('')
-      return
+      setDateError('')
+    } else {
+      if (dateStr <= checkInDate) {
+        setCheckInDate(dateStr)
+        setCheckOutDate('')
+      } else {
+        setCheckInDate(checkInDate)
+        setCheckOutDate(dateStr)
+        setDateError('')
+      }
     }
-    setCheckOutDate(val)
-    setDateError('')
   }
 
   const nights = checkInDate && checkOutDate
@@ -114,10 +88,6 @@ const PropertyDetails = () => {
     }
     if (!checkInDate || !checkOutDate) {
       setDateError('Please select check-in and check-out dates')
-      return
-    }
-    if (!isRangeAvailable(checkInDate, checkOutDate)) {
-      setDateError('Selected dates are no longer available')
       return
     }
     navigate(`/booking/${id}`, {
@@ -257,6 +227,22 @@ const PropertyDetails = () => {
             </div>
           )}
 
+          {/* Availability Calendar Section */}
+          <div className="mb-8">
+            <h2 className="text-xl font-bold mb-3 text-main-text">Availability</h2>
+            <div className="bg-white rounded-card shadow-card border border-divider p-5">
+              <AvailabilityCalendar
+                bookedRanges={bookedRanges}
+                blockedRanges={blockedRanges}
+                selectedCheckIn={checkInDate}
+                selectedCheckOut={checkOutDate}
+                onDateSelect={handleDateSelect}
+                mode="guest"
+                loading={availLoading}
+              />
+            </div>
+          </div>
+
           <div>
             <h2 className="text-xl font-bold mb-3 text-main-text">Reviews</h2>
             <div className="space-y-3">
@@ -293,23 +279,19 @@ const PropertyDetails = () => {
                 <input
                   type="date"
                   value={checkInDate}
-                  onChange={handleCheckInChange}
-                  className="input-field text-sm"
-                  min={today}
+                  readOnly
+                  className="input-field text-sm bg-background cursor-pointer"
                 />
-                {checkInDate && isDateBooked(checkInDate) && (
-                  <p className="text-xs text-danger mt-1">This date is booked</p>
-                )}
               </div>
               <div>
                 <label className="block text-xs font-medium text-secondary-text mb-1">Check-out</label>
                 <input
                   type="date"
                   value={checkOutDate}
-                  onChange={handleCheckOutChange}
-                  className="input-field text-sm"
-                  min={checkInDate || today}
+                  readOnly
+                  className="input-field text-sm bg-background cursor-pointer"
                 />
+                <p className="text-[10px] text-secondary-text mt-1">Select dates on the calendar below</p>
               </div>
               {dateError && (
                 <p className="text-xs text-danger mt-1">{dateError}</p>
@@ -330,7 +312,7 @@ const PropertyDetails = () => {
 
             <button
               onClick={handleBooking}
-              disabled={!checkInDate || !checkOutDate || !!dateError}
+              disabled={!checkInDate || !checkOutDate}
               className="btn-primary w-full mb-4 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isAuthenticated ? 'Reserve Now' : 'Login to Reserve'}
@@ -352,6 +334,19 @@ const PropertyDetails = () => {
                 </div>
               </div>
             )}
+
+            {/* Mini Calendar in Sidebar */}
+            <div className="mt-5 pt-5 border-t border-divider">
+              <AvailabilityCalendar
+                bookedRanges={bookedRanges}
+                blockedRanges={blockedRanges}
+                selectedCheckIn={checkInDate}
+                selectedCheckOut={checkOutDate}
+                onDateSelect={handleDateSelect}
+                mode="guest"
+                loading={availLoading}
+              />
+            </div>
           </div>
         </div>
       </div>

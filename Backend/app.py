@@ -245,6 +245,21 @@ CREATE TABLE IF NOT EXISTS booking_timeline (
     FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
     INDEX idx_bt_booking (booking_id)
 ) ENGINE=InnoDB;
+
+-- 18. blocked_dates Table
+CREATE TABLE IF NOT EXISTS blocked_dates (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    property_id INT NOT NULL,
+    host_id INT NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    reason VARCHAR(255) DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE,
+    FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE,
+    INDEX idx_bd_property (property_id),
+    INDEX idx_bd_dates (start_date, end_date)
+) ENGINE=InnoDB;
 """
 
 
@@ -1376,6 +1391,106 @@ def create_app() -> Flask:
         except Exception as e:
             return jsonify({"status": "error", "message": f"Error loading host properties: {str(e)}"}), 500
 
+    # ──────────────────────────────────────────────
+    # HOST AVAILABILITY – Block / Unblock Dates
+    # ──────────────────────────────────────────────
+    @app.post("/api/host/property/block-dates")
+    def host_block_dates():
+        body = request.get_json(silent=True) or {}
+        host, error = _host_guard(body)
+        if error:
+            return error
+
+        property_id = body.get('property_id')
+        start_date = body.get('start_date', '').strip()
+        end_date = body.get('end_date', '').strip()
+        reason = body.get('reason', '').strip()
+
+        if not property_id or not start_date or not end_date:
+            return jsonify({"status": "error", "message": "property_id, start_date, and end_date are required"}), 400
+
+        from datetime import datetime as _dt
+        try:
+            sd = _dt.strptime(start_date, '%Y-%m-%d').date()
+            ed = _dt.strptime(end_date, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({"status": "error", "message": "Invalid date format (use YYYY-MM-DD)"}), 400
+
+        if ed <= sd:
+            return jsonify({"status": "error", "message": "End date must be after start date"}), 400
+
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute(
+                "SELECT id, host_id FROM properties WHERE id = %s",
+                (property_id,)
+            )
+            prop = cursor.fetchone()
+            if not prop or prop['host_id'] != host['host_id']:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Property not found or unauthorized"}), 404
+
+            if _check_overlap(cursor, property_id, start_date, end_date):
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Selected dates overlap with an existing booking or blocked period"}), 409
+
+            cursor.execute(
+                "INSERT INTO blocked_dates (property_id, host_id, start_date, end_date, reason) VALUES (%s, %s, %s, %s, %s)",
+                (property_id, host['host_id'], start_date, end_date, reason or None)
+            )
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Dates blocked successfully"}), 201
+
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Error blocking dates: {str(e)}"}), 500
+
+    @app.post("/api/host/property/unblock-dates")
+    def host_unblock_dates():
+        body = request.get_json(silent=True) or {}
+        host, error = _host_guard(body)
+        if error:
+            return error
+
+        block_id = body.get('block_id')
+        property_id = body.get('property_id')
+
+        if not block_id and not property_id:
+            return jsonify({"status": "error", "message": "block_id or property_id is required"}), 400
+
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+
+            if block_id:
+                cursor.execute(
+                    "SELECT bd.id FROM blocked_dates bd WHERE bd.id = %s AND bd.host_id = %s",
+                    (block_id, host['host_id'])
+                )
+                if not cursor.fetchone():
+                    cursor.close()
+                    conn.close()
+                    return jsonify({"status": "error", "message": "Block entry not found or unauthorized"}), 404
+                cursor.execute("DELETE FROM blocked_dates WHERE id = %s AND host_id = %s", (block_id, host['host_id']))
+            else:
+                cursor.execute(
+                    "DELETE FROM blocked_dates WHERE property_id = %s AND host_id = %s",
+                    (property_id, host['host_id'])
+                )
+
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Dates unblocked successfully"}), 200
+
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Error unblocking dates: {str(e)}"}), 500
+
     @app.post("/api/host/bookings")
     def host_bookings():
         body = request.get_json(silent=True) or {}
@@ -2224,9 +2339,22 @@ def create_app() -> Flask:
             for b in booked:
                 b['check_in'] = str(b['check_in'])
                 b['check_out'] = str(b['check_out'])
+
+            cursor.execute(
+                """
+                SELECT id, DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+                       DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date, reason
+                FROM blocked_dates
+                WHERE property_id = %s AND end_date >= CURRENT_DATE()
+                ORDER BY start_date ASC
+                """,
+                (property_id,)
+            )
+            blocked = cursor.fetchall()
+
             cursor.close()
             conn.close()
-            return jsonify({"status": "success", "data": booked}), 200
+            return jsonify({"status": "success", "data": booked, "blocked": blocked}), 200
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -2260,6 +2388,13 @@ def create_app() -> Flask:
             (booking_id, event_type, event_label, actor_role, actor_name, meta_json)
         )
 
+    def _check_blocked_dates(cursor, property_id, check_in, check_out):
+        cursor.execute(
+            "SELECT COUNT(*) AS cnt FROM blocked_dates WHERE property_id = %s AND start_date < %s AND end_date > %s",
+            (property_id, check_out, check_in)
+        )
+        return cursor.fetchone()['cnt'] > 0
+
     def _check_overlap(cursor, property_id, check_in, check_out, exclude_booking_id=None):
         sql = """
             SELECT COUNT(*) AS cnt FROM bookings
@@ -2271,7 +2406,9 @@ def create_app() -> Flask:
             sql += " AND id != %s"
             params.append(exclude_booking_id)
         cursor.execute(sql, params)
-        return cursor.fetchone()['cnt'] > 0
+        if cursor.fetchone()['cnt'] > 0:
+            return True
+        return _check_blocked_dates(cursor, property_id, check_in, check_out)
 
     # ──────────────────────────────────────────────
     # BOOKING SYSTEM – Create Booking
@@ -2309,10 +2446,11 @@ def create_app() -> Flask:
 
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
+            conn.start_transaction()
             cursor = conn.cursor(dictionary=True)
 
             cursor.execute(
-                "SELECT id, host_id, price_per_night, max_guests FROM properties WHERE id = %s",
+                "SELECT id, host_id, price_per_night, max_guests FROM properties WHERE id = %s FOR UPDATE",
                 (property_id,)
             )
             prop = cursor.fetchone()
@@ -2414,6 +2552,10 @@ def create_app() -> Flask:
             }), 201
 
         except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             return jsonify({"status": "error", "message": f"Error creating booking: {str(e)}"}), 500
 
     # ──────────────────────────────────────────────

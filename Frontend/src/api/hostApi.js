@@ -63,6 +63,15 @@ const hostAPI = {
 
   createComplaint: (data) =>
     apiClient.post('/host/complaint/create', data),
+
+  blockDates: (propertyId, startDate, endDate, reason) =>
+    apiClient.post('/host/property/block-dates', { property_id: propertyId, start_date: startDate, end_date: endDate, reason }),
+
+  unblockDates: (blockId) =>
+    apiClient.post('/host/property/unblock-dates', { block_id: blockId }),
+
+  unblockAllForProperty: (propertyId) =>
+    apiClient.post('/host/property/unblock-dates', { property_id: propertyId }),
 }
 
 export default hostAPI
