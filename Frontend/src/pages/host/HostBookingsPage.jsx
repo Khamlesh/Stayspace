@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import hostAPI from '../../api/hostApi'
 import { formatRupees } from '../../utils/currency'
+import BookingDetailsModal from '../../components/BookingDetailsModal'
 import { HiOutlineMagnifyingGlass, HiOutlineCheckCircle, HiOutlineXCircle, HiOutlineUserCircle } from 'react-icons/hi2'
 
 export default function HostBookingsPage() {
@@ -121,9 +122,9 @@ export default function HostBookingsPage() {
       )}
 
       {selectedBooking && (
-        <BookingDetailModal
+        <BookingDetailsModal
           booking={selectedBooking}
-          statusColors={statusColors}
+          role="host"
           onClose={() => setSelectedBooking(null)}
           onAction={handleAction}
           actionLoading={actionLoading}
@@ -200,114 +201,6 @@ function BookingRow({ booking: b, statusColors, onAction, actionLoading, onSelec
           </div>
         )}
       </div>
-    </div>
-  )
-}
-
-function BookingDetailModal({ booking: b, statusColors, onClose, onAction, actionLoading }) {
-  const [imgErr, setImgErr] = useState(false)
-  const nights = b.nights || Math.max(1, Math.ceil((new Date(b.check_out) - new Date(b.check_in)) / (1000*60*60*24)))
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="p-6">
-          <div className="flex justify-between items-start mb-4">
-            <h2 className="text-xl font-bold text-main-text">Booking #{b.id}</h2>
-            <button onClick={onClose} className="text-secondary-text hover:text-main-text text-2xl">&times;</button>
-          </div>
-
-          <div className="flex items-center gap-3 mb-4">
-            <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${statusColors[b.status] || ''}`}>{b.status}</span>
-            {b.property_type && <span className="text-xs font-medium px-2 py-1 rounded-full bg-primary/10 text-primary">{b.property_type}</span>}
-          </div>
-
-          {b.image_url && !imgErr && (
-            <img src={b.image_url} alt="" className="w-full h-40 object-cover rounded-lg mb-4" onError={() => setImgErr(true)} />
-          )}
-
-          <div className="space-y-4">
-            <Section title="Guest Information">
-              <Info label="Name" value={b.guest_name} />
-              <Info label="Email" value={b.guest_email} />
-              <Info label="Guests" value={`${b.guests_count || 1} person${(b.guests_count || 1) > 1 ? 's' : ''}`} />
-            </Section>
-
-            <Section title="Property Information">
-              <Info label="Property" value={b.property_title} />
-              <Info label="Type" value={b.property_type || 'House'} />
-              <Info label="Location" value={b.property_address} />
-            </Section>
-
-            <Section title="Booking Information">
-              <Info label="Check-in" value={b.check_in} />
-              <Info label="Check-out" value={b.check_out} />
-              <Info label="Nights" value={`${nights} night${nights > 1 ? 's' : ''}`} />
-              <Info label="Booked On" value={b.created_at?.split(' ')[0]} />
-            </Section>
-
-            <Section title="Payment Information">
-              <Info label="Total Amount" value={formatRupees(b.total_price)} bold />
-              <Info label="Payment Method" value={b.payment_method || 'N/A'} />
-              <Info label="Transaction ID" value={b.transaction_id || 'N/A'} mono />
-              <Info label="Payment Status" value={b.payment_amount > 0 ? 'Paid' : 'Pending'} />
-            </Section>
-
-            {b.special_requests && (
-              <Section title="Special Requests">
-                <p className="text-sm text-secondary-text">{b.special_requests}</p>
-              </Section>
-            )}
-          </div>
-
-          <div className="flex gap-2 mt-6 pt-4 border-t border-divider">
-            {b.status === 'Pending' && (
-              <>
-                <button onClick={() => { onAction(b.id, 'confirm'); onClose() }} className="btn-primary flex-1">Confirm</button>
-                <button onClick={() => { onAction(b.id, 'cancel'); onClose() }} className="btn-danger flex-1">Reject</button>
-              </>
-            )}
-            {b.status === 'Confirmed' && (
-              <>
-                <button onClick={() => { onAction(b.id, 'checkin'); onClose() }} className="btn-primary flex-1">Check-in Guest</button>
-                <button onClick={() => { onAction(b.id, 'cancel'); onClose() }} className="btn-danger flex-1">Cancel</button>
-              </>
-            )}
-            {b.status === 'Checked-In' && (
-              <>
-                <button onClick={() => { onAction(b.id, 'complete'); onClose() }} className="btn-primary flex-1">Complete Stay</button>
-                <button onClick={() => { onAction(b.id, 'cancel'); onClose() }} className="btn-danger flex-1">Cancel</button>
-              </>
-            )}
-            {b.status === 'Completed' && (
-              <p className="text-sm text-secondary-text w-full text-center">This booking is completed.</p>
-            )}
-            {b.status === 'Cancelled' && (
-              <p className="text-sm text-danger w-full text-center">This booking has been cancelled.</p>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function Section({ title, children }) {
-  return (
-    <div>
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-secondary-text mb-2">{title}</h3>
-      <div className="bg-background rounded-lg p-3 space-y-1.5">
-        {children}
-      </div>
-    </div>
-  )
-}
-
-function Info({ label, value, bold, mono }) {
-  return (
-    <div className="flex justify-between text-sm">
-      <span className="text-secondary-text">{label}</span>
-      <span className={`text-main-text ${bold ? 'font-bold' : ''} ${mono ? 'font-mono text-xs' : ''}`}>{value || 'N/A'}</span>
     </div>
   )
 }

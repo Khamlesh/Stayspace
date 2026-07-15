@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { bookingsAPI } from '../../api/client'
 import { formatRupees } from '../../utils/currency'
 import { generateBookingReceipt } from '../../utils/receiptGenerator'
+import BookingDetailsModal from '../../components/BookingDetailsModal'
 import {
   HiOutlineCalendarDays,
   HiOutlineClock,
@@ -10,7 +11,6 @@ import {
   HiOutlineBanknotes,
   HiOutlineCreditCard,
   HiOutlineDocumentDuplicate,
-  HiOutlineXMark,
   HiOutlineMapPin,
   HiOutlineHomeModern,
   HiOutlineChatBubbleLeftEllipsis,
@@ -158,8 +158,9 @@ export default function UserBookingsPage() {
       )}
 
       {selectedBooking && (
-        <BookingDetailModal
+        <BookingDetailsModal
           booking={selectedBooking}
+          role="guest"
           onClose={() => setSelectedBooking(null)}
           onCancel={handleCancel}
           cancellingId={cancellingId}
@@ -284,159 +285,6 @@ function BookingCard({ booking: b, onCancel, cancellingId, onSelect }) {
           </div>
         </div>
       </div>
-    </div>
-  )
-}
-
-function BookingDetailModal({ booking: b, onClose, onCancel, cancellingId, onLeaveReview }) {
-  const [imgErr, setImgErr] = useState(false)
-  const nights = b.nights || Math.max(1, Math.ceil((new Date(b.check_out) - new Date(b.check_in)) / (1000 * 60 * 60 * 24)))
-  const canCancel = b.status === 'Pending' || b.status === 'Confirmed'
-  const canReview = b.status === 'Completed' && !b.has_review
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div
-        className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="p-6">
-          <div className="flex justify-between items-start mb-4">
-            <h2 className="text-xl font-bold text-main-text">Booking #{b.id}</h2>
-            <button
-              onClick={onClose}
-              className="text-secondary-text hover:text-main-text p-1 rounded-lg hover:bg-divider transition-colors"
-            >
-              <HiOutlineXMark className="w-5 h-5" />
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2 mb-4">
-            <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_COLORS[b.status] || ''}`}>
-              {b.status}
-            </span>
-            {b.property_type && (
-              <span className="text-xs font-medium px-2 py-1 rounded-full bg-primary/10 text-primary">
-                {b.property_type}
-              </span>
-            )}
-          </div>
-
-          {b.image_url && !imgErr && (
-            <img
-              src={b.image_url}
-              alt={b.property_title}
-              className="w-full h-40 object-cover rounded-lg mb-4"
-              onError={() => setImgErr(true)}
-            />
-          )}
-
-          <div className="space-y-4">
-            <Section title="Property">
-              <Info label="Name" value={b.property_title} />
-              <Info label="Type" value={b.property_type || 'House'} />
-              <Info label="Location" value={b.property_address} />
-            </Section>
-
-            <Section title="Host Information">
-              <Info label="Host Name" value={b.host_name} />
-              <Info label="Host Email" value={b.host_email} />
-              <Info label="Host Phone" value={b.host_phone || 'Not Available'} />
-            </Section>
-
-            <Section title="Booking Details">
-              <Info label="Check-in" value={b.check_in} />
-              <Info label="Check-out" value={b.check_out} />
-              <Info label="Duration" value={`${nights} night${nights > 1 ? 's' : ''}`} />
-              <Info label="Guests" value={`${b.guests_count || 1} person${(b.guests_count || 1) > 1 ? 's' : ''}`} />
-              {b.created_at && <Info label="Booked On" value={b.created_at.split(' ')[0]} />}
-            </Section>
-
-            <Section title="Payment">
-              <Info label="Total Amount" value={formatRupees(b.total_price)} bold />
-              <Info label="Payment Method" value={b.payment_method || 'N/A'} />
-              <Info label="Transaction ID" value={b.transaction_id || 'N/A'} mono />
-            </Section>
-
-            {b.special_requests && (
-              <Section title="Special Requests">
-                <p className="text-sm text-secondary-text">{b.special_requests}</p>
-              </Section>
-            )}
-          </div>
-
-          <div className="flex gap-2 mt-6 pt-4 border-t border-divider">
-            {(b.status === 'Completed' || b.status === 'Confirmed') && (
-              <button
-                onClick={() => generateBookingReceipt({
-                  bookingId: b.id, transactionId: b.transaction_id, amount: b.total_price,
-                  nights, paymentMethod: b.payment_method, propertyTitle: b.property_title,
-                  propertyAddress: b.property_address, checkInDate: b.check_in, checkOutDate: b.check_out,
-                  guests: b.guests_count, status: b.status, guest_name: b.guest_name,
-                  host_name: b.host_name, host_email: b.host_email, host_phone: b.host_phone,
-                  bookingDate: b.created_at
-                })}
-                className="flex-1 px-4 py-2.5 text-sm font-semibold text-primary bg-primary/10 hover:bg-primary/20 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5"
-              >
-                <HiOutlineDocumentDuplicate className="w-4 h-4" />
-                Download Receipt
-              </button>
-            )}
-            {canCancel && (
-              <>
-                <button
-                  onClick={() => { onCancel(b.id); onClose() }}
-                  disabled={cancellingId === b.id}
-                  className="flex-1 px-4 py-2.5 text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {cancellingId === b.id ? 'Cancelling...' : 'Cancel Booking'}
-                </button>
-                <button
-                  onClick={onClose}
-                  className="flex-1 btn-primary text-center"
-                >
-                  Close
-                </button>
-              </>
-            )}
-            {canReview && (
-              <button
-                onClick={() => { onClose(); onLeaveReview(b.property_id) }}
-                className="flex-1 btn-primary text-center"
-              >
-                Leave Review
-              </button>
-            )}
-            {!canCancel && !canReview && (
-              <button onClick={onClose} className="w-full btn-primary text-center">
-                Close
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function Section({ title, children }) {
-  return (
-    <div>
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-secondary-text mb-2">{title}</h3>
-      <div className="bg-background rounded-lg p-3 space-y-1.5">
-        {children}
-      </div>
-    </div>
-  )
-}
-
-function Info({ label, value, bold, mono }) {
-  return (
-    <div className="flex justify-between text-sm">
-      <span className="text-secondary-text">{label}</span>
-      <span className={`text-main-text ${bold ? 'font-bold' : ''} ${mono ? 'font-mono text-xs' : ''}`}>
-        {value || 'N/A'}
-      </span>
     </div>
   )
 }
