@@ -46,14 +46,26 @@ const adminAPI = {
   updateComplaint: (data) =>
     apiClient.post('/admin/complaint/update', data),
 
-  getNotifications: () =>
-    apiClient.get('/admin/notifications'),
+  getNotifications: (params = {}) => {
+    const query = new URLSearchParams()
+    if (params.page) query.set('page', params.page)
+    if (params.limit) query.set('limit', params.limit)
+    if (params.type) query.set('type', params.type)
+    if (params.search) query.set('search', params.search)
+    if (params.sort) query.set('sort', params.sort)
+    if (params.read) query.set('read', params.read)
+    const qs = query.toString()
+    return apiClient.get(`/admin/notifications${qs ? '?' + qs : ''}`)
+  },
 
   markNotificationsRead: (notificationId) =>
     apiClient.post('/admin/notifications/read', { notification_id: notificationId }),
 
   deleteNotification: (notificationId) =>
     apiClient.post('/admin/notifications/delete', { notification_id: notificationId }),
+
+  getUnreadCount: () =>
+    apiClient.get('/admin/notifications/unread-count'),
 
   getProfile: () =>
     apiClient.get('/admin/profile'),

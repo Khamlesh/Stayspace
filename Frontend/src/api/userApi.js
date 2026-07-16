@@ -13,8 +13,17 @@ const userAPI = {
   changePassword: (oldPassword, newPassword) =>
     apiClient.post('/guest/change_password', { old_password: oldPassword, new_password: newPassword }),
 
-  getNotifications: () =>
-    apiClient.get('/guest/notifications'),
+  getNotifications: (params = {}) => {
+    const query = new URLSearchParams()
+    if (params.page) query.set('page', params.page)
+    if (params.limit) query.set('limit', params.limit)
+    if (params.type) query.set('type', params.type)
+    if (params.search) query.set('search', params.search)
+    if (params.sort) query.set('sort', params.sort)
+    if (params.read) query.set('read', params.read)
+    const qs = query.toString()
+    return apiClient.get(`/guest/notifications${qs ? '?' + qs : ''}`)
+  },
 
   markNotificationsRead: (notificationId) =>
     apiClient.post('/guest/notifications/read', { notification_id: notificationId }),

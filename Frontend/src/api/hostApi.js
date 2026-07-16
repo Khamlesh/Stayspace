@@ -34,8 +34,17 @@ const hostAPI = {
   getEarnings: () =>
     apiClient.post('/host/earnings'),
 
-  getNotifications: () =>
-    apiClient.get('/host/notifications'),
+  getNotifications: (params = {}) => {
+    const query = new URLSearchParams()
+    if (params.page) query.set('page', params.page)
+    if (params.limit) query.set('limit', params.limit)
+    if (params.type) query.set('type', params.type)
+    if (params.search) query.set('search', params.search)
+    if (params.sort) query.set('sort', params.sort)
+    if (params.read) query.set('read', params.read)
+    const qs = query.toString()
+    return apiClient.get(`/host/notifications${qs ? '?' + qs : ''}`)
+  },
 
   markNotificationsRead: (notificationId) =>
     apiClient.post('/host/notifications/read', { notification_id: notificationId }),

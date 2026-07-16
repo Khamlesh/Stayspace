@@ -132,10 +132,15 @@ CREATE TABLE IF NOT EXISTS Notifications (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     message TEXT NOT NULL,
+    type VARCHAR(50) DEFAULT 'system',
+    title VARCHAR(255) DEFAULT '',
+    link_url VARCHAR(500) NULL,
     is_read BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE,
-    INDEX idx_user_notif (user_id)
+    INDEX idx_user_notif (user_id),
+    INDEX idx_notif_type (type),
+    INDEX idx_notif_read (is_read)
 ) ENGINE=InnoDB;
 
 -- 12. Receipts Table

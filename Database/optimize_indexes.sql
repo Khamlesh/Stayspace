@@ -10,6 +10,8 @@ ALTER TABLE Reviews ADD INDEX IF NOT EXISTS idx_guest_id (guest_id);
 ALTER TABLE Wishlist ADD INDEX IF NOT EXISTS idx_guest (guest_id);
 ALTER TABLE Wishlist ADD INDEX IF NOT EXISTS idx_property (property_id);
 ALTER TABLE Notifications ADD INDEX IF NOT EXISTS idx_is_read (is_read);
+ALTER TABLE Notifications ADD INDEX IF NOT EXISTS idx_notif_type (type);
+ALTER TABLE Notifications ADD INDEX IF NOT EXISTS idx_notif_user_read (user_id, is_read);
 ALTER TABLE Payments ADD INDEX IF NOT EXISTS idx_booking_id (booking_id);
 ALTER TABLE Payments ADD INDEX IF NOT EXISTS idx_status (status);
 ALTER TABLE Complaints ADD INDEX IF NOT EXISTS idx_user_id (user_id);

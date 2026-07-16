@@ -285,6 +285,13 @@ CREATE TABLE IF NOT EXISTS booking_modifications (
     INDEX idx_bm_booking (booking_id),
     INDEX idx_bm_status (status)
 ) ENGINE=InnoDB;
+
+-- Phase 2.5: Extend notifications table for Notification Center
+ALTER TABLE notifications ADD COLUMN type VARCHAR(50) DEFAULT 'system' AFTER message;
+ALTER TABLE notifications ADD COLUMN title VARCHAR(255) DEFAULT '' AFTER type;
+ALTER TABLE notifications ADD COLUMN link_url VARCHAR(500) NULL AFTER title;
+ALTER TABLE notifications ADD INDEX IF NOT EXISTS idx_notif_type (type);
+ALTER TABLE notifications ADD INDEX IF NOT EXISTS idx_notif_read (is_read);
 """
 
 
@@ -2007,19 +2014,55 @@ def create_app() -> Flask:
         if error:
             return error
         try:
+            page = max(1, int(request.args.get('page', 1)))
+            limit = min(50, max(1, int(request.args.get('limit', 20))))
+            offset = (page - 1) * limit
+            notif_type = request.args.get('type', '').strip()
+            search = request.args.get('search', '').strip()
+            sort = request.args.get('sort', 'newest')
+            read_filter = request.args.get('read', '').strip()
+
+            where_clauses = ["user_id = %s"]
+            params = [host["id"]]
+
+            if notif_type:
+                where_clauses.append("type = %s")
+                params.append(notif_type)
+            if search:
+                where_clauses.append("(title LIKE %s OR message LIKE %s)")
+                params.extend([f"%{search}%", f"%{search}%"])
+            if read_filter == 'unread':
+                where_clauses.append("is_read = FALSE")
+            elif read_filter == 'read':
+                where_clauses.append("is_read = TRUE")
+
+            where_sql = " AND ".join(where_clauses)
+            order = "ASC" if sort == 'oldest' else "DESC"
+
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
+
+            cursor.execute(f"SELECT COUNT(*) AS total FROM notifications WHERE {where_sql}", params)
+            total = cursor.fetchone()['total']
+
             cursor.execute(
-                "SELECT id, message, is_read, created_at FROM notifications WHERE user_id = %s ORDER BY created_at DESC LIMIT 50",
-                (host["id"],)
+                f"SELECT id, message, type, title, link_url, is_read, created_at FROM notifications WHERE {where_sql} ORDER BY created_at {order} LIMIT %s OFFSET %s",
+                params + [limit, offset]
             )
             notifications = cursor.fetchall()
             for n in notifications:
                 n["created_at"] = str(n["created_at"])
                 n["is_read"] = bool(n["is_read"])
+                n["type"] = n.get("type") or "system"
+                n["title"] = n.get("title") or ""
+                n["link_url"] = n.get("link_url")
+
+            cursor.execute("SELECT COUNT(*) AS cnt FROM notifications WHERE user_id = %s AND is_read = FALSE", (host["id"],))
+            unread_count = cursor.fetchone()['cnt']
+
             cursor.close()
             conn.close()
-            return jsonify({"status": "success", "data": notifications}), 200
+            return jsonify({"status": "success", "data": notifications, "total": total, "page": page, "limit": limit, "unread_count": unread_count}), 200
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -2402,8 +2445,11 @@ def create_app() -> Flask:
         row = cursor.fetchone()
         return row['id'] if row else None
 
-    def _create_notification(cursor, user_id, message):
-        cursor.execute("INSERT INTO notifications (user_id, message) VALUES (%s, %s)", (user_id, message))
+    def _create_notification(cursor, user_id, message, notif_type='system', title='', link_url=None):
+        cursor.execute(
+            "INSERT INTO notifications (user_id, message, type, title, link_url) VALUES (%s, %s, %s, %s, %s)",
+            (user_id, message, notif_type, title or message[:80], link_url)
+        )
 
     def _log_timeline_event(cursor, booking_id, event_type, event_label, actor_role='System', actor_name='', metadata=None):
         import json as _json
@@ -2527,16 +2573,19 @@ def create_app() -> Flask:
             host_user_id = _get_property_owner_user_id(cursor, property_id)
             if host_user_id:
                 _create_notification(cursor, host_user_id,
-                    f"New booking #{booking_id}: {guest['name']} booked your property for {check_in} to {check_out}")
+                    f"New booking #{booking_id}: {guest['name']} booked your property for {check_in} to {check_out}",
+                    'booking', f'New Booking #{booking_id}', f'/host/bookings')
 
             cursor.execute("SELECT id FROM users WHERE role = 'Admin' LIMIT 1")
             admin_row = cursor.fetchone()
             if admin_row:
                 _create_notification(cursor, admin_row['id'],
-                    f"New booking #{booking_id} confirmed: {guest['name']} booked property #{property_id} for ₹{total_price:.0f}")
+                    f"New booking #{booking_id} confirmed: {guest['name']} booked property #{property_id} for ₹{total_price:.0f}",
+                    'booking', f'Booking #{booking_id} Confirmed', '/admin/bookings')
 
             _create_notification(cursor, guest['id'],
-                f"Your booking #{booking_id} is confirmed! Check-in: {check_in}, Check-out: {check_out}. Total: ₹{total_price:.0f}")
+                f"Your booking #{booking_id} is confirmed! Check-in: {check_in}, Check-out: {check_out}. Total: ₹{total_price:.0f}",
+                'booking', f'Booking #{booking_id} Confirmed', f'/user/bookings')
 
             cursor.execute(
                 """
@@ -2667,10 +2716,12 @@ def create_app() -> Flask:
             host_user_id = _get_property_owner_user_id(cursor, booking['property_id'])
             if host_user_id:
                 _create_notification(cursor, host_user_id,
-                    f"Booking #{booking_id} has been cancelled by the guest.")
+                    f"Booking #{booking_id} has been cancelled by the guest.",
+                    'booking', f'Booking #{booking_id} Cancelled', '/host/bookings')
 
             _create_notification(cursor, guest['id'],
-                f"Your booking #{booking_id} has been cancelled.")
+                f"Your booking #{booking_id} has been cancelled.",
+                'booking', f'Booking #{booking_id} Cancelled', '/user/bookings')
 
             conn.commit()
             cursor.close()
@@ -2746,7 +2797,8 @@ def create_app() -> Flask:
 
             if guest_user:
                 _create_notification(cursor, guest_user['user_id'],
-                    f"Your booking #{booking_id} status updated to: {new_status}")
+                    f"Your booking #{booking_id} status updated to: {new_status}",
+                    'booking', f'Booking #{booking_id} Updated', '/user/bookings')
 
             conn.commit()
             cursor.close()
@@ -2923,10 +2975,12 @@ def create_app() -> Flask:
             host_user_id = _get_property_owner_user_id(cursor, booking['property_id'])
             if host_user_id:
                 _create_notification(cursor, host_user_id,
-                    f"Booking #{booking_id}: Guest requested a modification. Please review.")
+                    f"Booking #{booking_id}: Guest requested a modification. Please review.",
+                    'booking', f'Modification Request #{booking_id}', '/host/bookings')
 
             _create_notification(cursor, guest['id'],
-                f"Your modification request for booking #{booking_id} has been submitted.")
+                f"Your modification request for booking #{booking_id} has been submitted.",
+                'booking', f'Modification Request #{booking_id}', '/user/bookings')
 
             conn.commit()
             cursor.close(); conn.close()
@@ -3014,7 +3068,8 @@ def create_app() -> Flask:
                 msg = f"Your modification request for booking #{mod['booking_id']} has been {'approved' if action == 'approve' else 'rejected'}."
                 if comments:
                     msg += f" Host comment: {comments}"
-                _create_notification(cursor, guest_user['user_id'], msg)
+                _create_notification(cursor, guest_user['user_id'], msg,
+                    'booking', f'Modification {"Approved" if action == "approve" else "Rejected"}', '/user/bookings')
 
             conn.commit()
             cursor.close(); conn.close()
@@ -3183,24 +3238,28 @@ def create_app() -> Flask:
 
             host_user_id = _get_property_owner_user_id(cursor, booking['property_id'])
             if host_user_id and cancelled_by != 'Host':
-                _create_notification(cursor, host_user_id, f"Booking #{booking_id} has been cancelled by the {cancelled_by.lower()}.")
+                _create_notification(cursor, host_user_id, f"Booking #{booking_id} has been cancelled by the {cancelled_by.lower()}.",
+                    'booking', f'Booking #{booking_id} Cancelled', '/host/bookings')
 
             if is_guest:
-                _create_notification(cursor, user_row['guest_id'], f"Your booking #{booking_id} has been cancelled.")
+                _create_notification(cursor, user_row['guest_id'], f"Your booking #{booking_id} has been cancelled.",
+                    'booking', f'Booking #{booking_id} Cancelled', '/user/bookings')
             elif is_host:
                 guest_user_cursor = conn.cursor(dictionary=True)
                 guest_user_cursor.execute("SELECT user_id FROM guests WHERE id = %s", (booking['guest_id'],))
                 gu = guest_user_cursor.fetchone()
                 guest_user_cursor.close()
                 if gu:
-                    _create_notification(cursor, gu['user_id'], f"Your booking #{booking_id} has been cancelled by the host.")
+                    _create_notification(cursor, gu['user_id'], f"Your booking #{booking_id} has been cancelled by the host.",
+                        'booking', f'Booking #{booking_id} Cancelled', '/user/bookings')
 
             admin_cursor = conn.cursor(dictionary=True)
             admin_cursor.execute("SELECT id FROM users WHERE role = 'Admin' LIMIT 1")
             admin_row = admin_cursor.fetchone()
             admin_cursor.close()
             if admin_row and cancelled_by != 'Admin':
-                _create_notification(cursor, admin_row['id'], f"Booking #{booking_id} has been cancelled by {cancelled_by}.")
+                _create_notification(cursor, admin_row['id'], f"Booking #{booking_id} has been cancelled by {cancelled_by}.",
+                    'booking', f'Booking #{booking_id} Cancelled', '/admin/bookings')
 
             conn.commit()
             cursor.close(); conn.close()
@@ -3284,7 +3343,8 @@ def create_app() -> Flask:
             admin = cursor.fetchone()
             if admin:
                 _create_notification(cursor, admin['id'],
-                    f"New host registration: {host['name']} ({host['email']}) is awaiting approval.")
+                    f"New host registration: {host['name']} ({host['email']}) is awaiting approval.",
+                    'admin', 'New Host Registration', '/admin/hosts')
 
             cursor.close()
             conn.close()
@@ -3315,7 +3375,8 @@ def create_app() -> Flask:
                 return jsonify({"status": "error", "message": "Host not found"}), 404
             cursor.execute("UPDATE hosts SET is_approved = TRUE WHERE id = %s", (host_id,))
             _create_notification(cursor, host['user_id'],
-                "Congratulations! Your host account has been approved. You can now access the Host Dashboard.")
+                "Congratulations! Your host account has been approved. You can now access the Host Dashboard.",
+                'property', 'Host Account Approved', '/host')
             conn.commit()
             cursor.close()
             conn.close()
@@ -3347,7 +3408,8 @@ def create_app() -> Flask:
             if not cursor.fetchone():
                 cursor.execute("INSERT INTO guests (user_id) VALUES (%s)", (host['user_id'],))
             _create_notification(cursor, host['user_id'],
-                "Your host registration was not approved. Your account has been set to Guest.")
+                "Your host registration was not approved. Your account has been set to Guest.",
+                'property', 'Host Registration Rejected', '/user')
             conn.commit()
             cursor.close()
             conn.close()
@@ -3409,7 +3471,8 @@ def create_app() -> Flask:
                 cursor.execute("SELECT user_id FROM admins LIMIT 1")
                 admin_row = cursor.fetchone()
                 if admin_row:
-                    _create_notification(cursor, admin_row[0], f"New host complaint: {full_subject}")
+                    _create_notification(cursor, admin_row[0], f"New host complaint: {full_subject}",
+                        'complaint', 'New Host Complaint', '/admin/complaints')
             except Exception:
                 pass
             conn.commit()
@@ -3859,7 +3922,8 @@ def create_app() -> Flask:
                 params.append(complaint_id)
                 cursor.execute(f"UPDATE complaints SET {', '.join(updates)} WHERE id = %s", params)
                 _create_notification(cursor, comp['user_id'],
-                    f"Your complaint #{complaint_id} has been updated. Status: {status_val or 'unchanged'}.")
+                    f"Your complaint #{complaint_id} has been updated. Status: {status_val or 'unchanged'}.",
+                    'complaint', f'Complaint #{complaint_id} Updated', '/user/complaints')
             conn.commit()
             cursor.close()
             conn.close()
@@ -3877,19 +3941,55 @@ def create_app() -> Flask:
         if error:
             return error
         try:
+            page = max(1, int(request.args.get('page', 1)))
+            limit = min(50, max(1, int(request.args.get('limit', 20))))
+            offset = (page - 1) * limit
+            notif_type = request.args.get('type', '').strip()
+            search = request.args.get('search', '').strip()
+            sort = request.args.get('sort', 'newest')
+            read_filter = request.args.get('read', '').strip()
+
+            where_clauses = ["user_id = %s"]
+            params = [admin["id"]]
+
+            if notif_type:
+                where_clauses.append("type = %s")
+                params.append(notif_type)
+            if search:
+                where_clauses.append("(title LIKE %s OR message LIKE %s)")
+                params.extend([f"%{search}%", f"%{search}%"])
+            if read_filter == 'unread':
+                where_clauses.append("is_read = FALSE")
+            elif read_filter == 'read':
+                where_clauses.append("is_read = TRUE")
+
+            where_sql = " AND ".join(where_clauses)
+            order = "ASC" if sort == 'oldest' else "DESC"
+
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
+
+            cursor.execute(f"SELECT COUNT(*) AS total FROM notifications WHERE {where_sql}", params)
+            total = cursor.fetchone()['total']
+
             cursor.execute(
-                "SELECT id, message, is_read, created_at FROM notifications WHERE user_id = %s ORDER BY created_at DESC LIMIT 50",
-                (admin["id"],)
+                f"SELECT id, message, type, title, link_url, is_read, created_at FROM notifications WHERE {where_sql} ORDER BY created_at {order} LIMIT %s OFFSET %s",
+                params + [limit, offset]
             )
             notifications = cursor.fetchall()
             for n in notifications:
                 n["created_at"] = str(n["created_at"])
                 n["is_read"] = bool(n["is_read"])
+                n["type"] = n.get("type") or "system"
+                n["title"] = n.get("title") or ""
+                n["link_url"] = n.get("link_url")
+
+            cursor.execute("SELECT COUNT(*) AS cnt FROM notifications WHERE user_id = %s AND is_read = FALSE", (admin["id"],))
+            unread_count = cursor.fetchone()['cnt']
+
             cursor.close()
             conn.close()
-            return jsonify({"status": "success", "data": notifications}), 200
+            return jsonify({"status": "success", "data": notifications, "total": total, "page": page, "limit": limit, "unread_count": unread_count}), 200
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -3931,6 +4031,23 @@ def create_app() -> Flask:
             cursor.close()
             conn.close()
             return jsonify({"status": "success", "message": "Notification deleted"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.get("/api/admin/notifications/unread-count")
+    def admin_unread_count():
+        token = request.headers.get('X-Auth-Token', '')
+        admin, error = _admin_guard({'token': token})
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT COUNT(*) AS cnt FROM notifications WHERE user_id = %s AND is_read = FALSE", (admin["id"],))
+            count = cursor.fetchone()['cnt']
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": {"unread_count": count}}), 200
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -4285,7 +4402,8 @@ def create_app() -> Flask:
             guest_user_cursor.close()
             if guest_user:
                 _create_notification(cursor, guest_user['user_id'],
-                    f"Your booking #{booking_id} status updated to: {new_status} (by Admin)")
+                    f"Your booking #{booking_id} status updated to: {new_status} (by Admin)",
+                    'booking', f'Booking #{booking_id} Updated', '/user/bookings')
 
             conn.commit()
             cursor.close()
@@ -4619,19 +4737,55 @@ def create_app() -> Flask:
         if error:
             return error
         try:
+            page = max(1, int(request.args.get('page', 1)))
+            limit = min(50, max(1, int(request.args.get('limit', 20))))
+            offset = (page - 1) * limit
+            notif_type = request.args.get('type', '').strip()
+            search = request.args.get('search', '').strip()
+            sort = request.args.get('sort', 'newest')
+            read_filter = request.args.get('read', '').strip()
+
+            where_clauses = ["user_id = %s"]
+            params = [guest["id"]]
+
+            if notif_type:
+                where_clauses.append("type = %s")
+                params.append(notif_type)
+            if search:
+                where_clauses.append("(title LIKE %s OR message LIKE %s)")
+                params.extend([f"%{search}%", f"%{search}%"])
+            if read_filter == 'unread':
+                where_clauses.append("is_read = FALSE")
+            elif read_filter == 'read':
+                where_clauses.append("is_read = TRUE")
+
+            where_sql = " AND ".join(where_clauses)
+            order = "ASC" if sort == 'oldest' else "DESC"
+
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
+
+            cursor.execute(f"SELECT COUNT(*) AS total FROM notifications WHERE {where_sql}", params)
+            total = cursor.fetchone()['total']
+
             cursor.execute(
-                "SELECT id, message, is_read, created_at FROM notifications WHERE user_id = %s ORDER BY created_at DESC LIMIT 50",
-                (guest["id"],)
+                f"SELECT id, message, type, title, link_url, is_read, created_at FROM notifications WHERE {where_sql} ORDER BY created_at {order} LIMIT %s OFFSET %s",
+                params + [limit, offset]
             )
             notifications = cursor.fetchall()
             for n in notifications:
                 n["created_at"] = str(n["created_at"])
                 n["is_read"] = bool(n["is_read"])
+                n["type"] = n.get("type") or "system"
+                n["title"] = n.get("title") or ""
+                n["link_url"] = n.get("link_url")
+
+            cursor.execute("SELECT COUNT(*) AS cnt FROM notifications WHERE user_id = %s AND is_read = FALSE", (guest["id"],))
+            unread_count = cursor.fetchone()['cnt']
+
             cursor.close()
             conn.close()
-            return jsonify({"status": "success", "data": notifications}), 200
+            return jsonify({"status": "success", "data": notifications, "total": total, "page": page, "limit": limit, "unread_count": unread_count}), 200
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -4757,7 +4911,8 @@ def create_app() -> Flask:
                 cursor.execute("SELECT user_id FROM admins LIMIT 1")
                 admin_row = cursor.fetchone()
                 if admin_row:
-                    _create_notification(cursor, admin_row[0], f"New complaint submitted: {subject}")
+                    _create_notification(cursor, admin_row[0], f"New complaint submitted: {subject}",
+                        'complaint', 'New Guest Complaint', '/admin/complaints')
                 conn.commit()
             except Exception:
                 pass

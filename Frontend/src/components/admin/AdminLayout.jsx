@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import adminAPI from '../../api/adminApi'
 import Logo from '../Logo'
+import NotificationCenter from '../NotificationCenter'
 import {
   HiOutlineHome, HiOutlineUserGroup, HiOutlineUserCircle, HiOutlineBuildingOffice2,
   HiOutlineCalendarDays, HiOutlineCurrencyRupee, HiOutlineChartBar,
@@ -35,16 +36,9 @@ export default function AdminLayout() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  useEffect(() => {
-    adminAPI.getNotifications()
-      .then(res => {
-        if (res.data.status === 'success') {
-          const unread = (res.data.data || []).filter(n => !n.is_read).length
-          setUnreadCount(unread)
-        }
-      })
-      .catch(() => {})
-  }, [location.pathname])
+  const handleUnreadChange = useCallback((count) => {
+    setUnreadCount(count)
+  }, [])
 
   useEffect(() => {
     setMobileOpen(false)
@@ -170,14 +164,7 @@ export default function AdminLayout() {
             <Logo size="sm" showText={false} linkTo="/admin" className="lg:hidden" />
           </div>
 
-          <NavLink to="/admin/notifications" className="relative w-9 h-9 flex items-center justify-center rounded-xl hover:bg-divider transition-colors">
-            <HiOutlineBell className="w-5 h-5 text-secondary-text" />
-            {unreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-primary text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </NavLink>
+          <NotificationCenter apiClient={adminAPI} basePath="/admin" onUnreadChange={handleUnreadChange} />
 
           <NavLink to="/admin/profile" className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
             <span className="text-primary font-semibold text-sm">{userInitial}</span>

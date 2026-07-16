@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import userAPI from '../../api/userApi'
 import Logo from '../Logo'
+import NotificationCenter from '../NotificationCenter'
 import {
   HiOutlineHome, HiOutlineMagnifyingGlass, HiOutlineHeart,
   HiOutlineCalendarDays, HiOutlineCurrencyRupee, HiOutlineStar,
@@ -32,16 +33,9 @@ export default function UserLayout() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  useEffect(() => {
-    userAPI.getNotifications()
-      .then(res => {
-        if (res.data.status === 'success') {
-          const unread = (res.data.data || []).filter(n => !n.is_read).length
-          setUnreadCount(unread)
-        }
-      })
-      .catch(() => {})
-  }, [location.pathname])
+  const handleUnreadChange = useCallback((count) => {
+    setUnreadCount(count)
+  }, [])
 
   useEffect(() => {
     setMobileOpen(false)
@@ -167,14 +161,7 @@ export default function UserLayout() {
             <Logo size="sm" showText={false} linkTo="/user" className="lg:hidden" />
           </div>
 
-          <NavLink to="/user/notifications" className="relative w-9 h-9 flex items-center justify-center rounded-xl hover:bg-divider transition-colors">
-            <HiOutlineBell className="w-5 h-5 text-secondary-text" />
-            {unreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-primary text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </NavLink>
+          <NotificationCenter apiClient={userAPI} basePath="/user" onUnreadChange={handleUnreadChange} />
 
           <NavLink to="/user/profile" className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
             <span className="text-primary font-semibold text-sm">{userInitial}</span>
