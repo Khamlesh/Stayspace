@@ -290,8 +290,8 @@ CREATE TABLE IF NOT EXISTS booking_modifications (
 ALTER TABLE notifications ADD COLUMN type VARCHAR(50) DEFAULT 'system' AFTER message;
 ALTER TABLE notifications ADD COLUMN title VARCHAR(255) DEFAULT '' AFTER type;
 ALTER TABLE notifications ADD COLUMN link_url VARCHAR(500) NULL AFTER title;
-ALTER TABLE notifications ADD INDEX IF NOT EXISTS idx_notif_type (type);
-ALTER TABLE notifications ADD INDEX IF NOT EXISTS idx_notif_read (is_read);
+ALTER TABLE notifications ADD INDEX idx_notif_type (type);
+ALTER TABLE notifications ADD INDEX idx_notif_read (is_read);
 """
 
 
@@ -308,8 +308,8 @@ def init_db_schema():
             try:
                 cursor.execute(clean)
             except mysql.connector.Error as e:
-                if e.errno == 1060:
-                    pass  # Duplicate column — already exists, skip
+                if e.errno in (1060, 1061):
+                    pass  # Duplicate column (1060) or index (1061) — already exists, skip
                 else:
                     raise
         conn.commit()
