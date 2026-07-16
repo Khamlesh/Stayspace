@@ -105,9 +105,9 @@ export default function AvailabilityCalendar({
           onDateSelect(dateStr, null)
         } else {
           if (rangesOverlap(selectedCheckIn, dateStr, allUnavailable)) {
-            onDateSelect(selectedCheckIn, 'overlap')
+            onDateSelect(dateStr, 'overlap')
           } else {
-            onDateSelect(selectedCheckIn, dateStr)
+            onDateSelect(dateStr, selectedCheckIn)
           }
         }
       }
