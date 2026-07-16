@@ -1325,6 +1325,64 @@ def create_app() -> Flask:
                 (host["id"],)
             )
 
+            annual_earnings = float(scalar(
+                """
+                SELECT COALESCE(SUM(pay.amount), 0) AS total
+                FROM payments pay
+                JOIN bookings b ON b.id = pay.booking_id
+                JOIN properties p ON p.id = b.property_id
+                WHERE p.host_id = %s AND pay.status = 'Success'
+                  AND YEAR(pay.created_at) = YEAR(CURRENT_DATE())
+                """,
+                (host_id,)
+            ))
+
+            completed_bookings = scalar(
+                "SELECT COUNT(*) AS c FROM bookings b JOIN properties p ON p.id = b.property_id WHERE p.host_id = %s AND b.status = 'Completed'",
+                (host_id,)
+            )
+            cancelled_bookings = scalar(
+                "SELECT COUNT(*) AS c FROM bookings b JOIN properties p ON p.id = b.property_id WHERE p.host_id = %s AND b.status = 'Cancelled'",
+                (host_id,)
+            )
+            pending_bookings = scalar(
+                "SELECT COUNT(*) AS c FROM bookings b JOIN properties p ON p.id = b.property_id WHERE p.host_id = %s AND b.status = 'Pending'",
+                (host_id,)
+            )
+
+            cursor.execute("""
+                SELECT b.status, COUNT(*) AS count
+                FROM bookings b JOIN properties p ON p.id = b.property_id
+                WHERE p.host_id = %s GROUP BY b.status
+            """, (host_id,))
+            booking_status_dist = [{"status": r["status"], "count": int(r["count"])} for r in cursor.fetchall()]
+
+            cursor.execute("""
+                SELECT p.id, p.title,
+                    COUNT(b.id) AS total_bookings,
+                    COALESCE(AVG(r.rating), 0) AS avg_rating,
+                    COALESCE(SUM(CASE WHEN pay.status='Success' THEN pay.amount ELSE 0 END), 0) AS revenue
+                FROM properties p
+                LEFT JOIN bookings b ON b.property_id = p.id AND b.status != 'Cancelled'
+                LEFT JOIN reviews r ON r.property_id = p.id
+                LEFT JOIN payments pay ON pay.booking_id = b.id
+                WHERE p.host_id = %s
+                GROUP BY p.id, p.title
+                ORDER BY revenue DESC
+            """, (host_id,))
+            property_performance = []
+            top_property = None
+            for row in cursor.fetchall():
+                entry = {
+                    "id": int(row["id"]), "title": row["title"],
+                    "total_bookings": int(row["total_bookings"]),
+                    "avg_rating": round(float(row["avg_rating"] or 0), 1),
+                    "revenue": float(row["revenue"])
+                }
+                property_performance.append(entry)
+                if top_property is None:
+                    top_property = entry["title"]
+
             earnings_growth = 0.0
             if last_month_earnings > 0:
                 earnings_growth = round(((monthly_earnings - last_month_earnings) / last_month_earnings) * 100, 1)
@@ -1335,11 +1393,18 @@ def create_app() -> Flask:
                 "total_properties": int(total_properties),
                 "total_bookings": int(total_bookings),
                 "monthly_earnings": monthly_earnings,
+                "annual_earnings": annual_earnings,
                 "average_rating": round(avg_rating, 1),
                 "properties_this_month": int(properties_this_month),
                 "bookings_this_month": int(bookings_this_month),
                 "earnings_growth_pct": earnings_growth,
                 "rating_change": rating_change,
+                "completed_bookings": int(completed_bookings),
+                "cancelled_bookings": int(cancelled_bookings),
+                "pending_bookings": int(pending_bookings),
+                "booking_status_distribution": booking_status_dist,
+                "property_performance": property_performance,
+                "top_performing_property": top_property,
                 "unread_notifications": int(unread_notifications),
                 "host_name": host["name"],
                 "host_email": host["email"],
@@ -4514,10 +4579,46 @@ def create_app() -> Flask:
             total_bookings = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM bookings WHERE guest_id = %s", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
             active_bookings = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM bookings WHERE guest_id = %s AND status IN ('Pending','Confirmed','Checked-In')", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
             completed_bookings = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM bookings WHERE guest_id = %s AND status = 'Completed'", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
+            cancelled_bookings = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM bookings WHERE guest_id = %s AND status = 'Cancelled'", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
+            upcoming_bookings = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM bookings WHERE guest_id = %s AND status IN ('Pending','Confirmed') AND check_in >= CURRENT_DATE()", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
             total_spent = float((lambda: (cursor.execute("SELECT COALESCE(SUM(pay.amount), 0) AS t FROM payments pay JOIN bookings b ON b.id = pay.booking_id WHERE b.guest_id = %s AND pay.status = 'Success'", (guest['guest_id'],)) or True) and cursor.fetchone()['t'])())
             wishlist_count = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM wishlist WHERE guest_id = %s", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
             reviews_count = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM reviews WHERE guest_id = %s", (guest['guest_id'],)) or True) and cursor.fetchone()['c'])()
             unread_notifications = (lambda: (cursor.execute("SELECT COUNT(*) AS c FROM notifications WHERE user_id = %s AND is_read = FALSE", (guest['id'],)) or True) and cursor.fetchone()['c'])()
+
+            avg_booking_cost = 0.0
+            if total_bookings > 0:
+                avg_booking_cost = round(total_spent / total_bookings, 2) if total_spent > 0 else 0.0
+
+            cursor.execute("""
+                SELECT DATE_FORMAT(b.created_at, '%b %Y') AS month_label,
+                       COALESCE(SUM(pay.amount), 0) AS spending, COUNT(*) AS booking_count
+                FROM bookings b
+                LEFT JOIN payments pay ON pay.booking_id = b.id AND pay.status = 'Success'
+                WHERE b.guest_id = %s
+                GROUP BY DATE_FORMAT(b.created_at, '%Y-%m'), month_label
+                ORDER BY DATE_FORMAT(b.created_at, '%Y-%m') DESC LIMIT 6
+            """, (guest['guest_id'],))
+            monthly_spending = []
+            for row in cursor.fetchall():
+                monthly_spending.append({"month": row["month_label"], "spending": float(row["spending"]), "bookings": int(row["booking_count"])})
+            monthly_spending.reverse()
+
+            cursor.execute("""
+                SELECT p.address AS destination, COUNT(*) AS trips
+                FROM bookings b JOIN properties p ON p.id = b.property_id
+                WHERE b.guest_id = %s AND b.status != 'Cancelled'
+                GROUP BY p.address ORDER BY trips DESC LIMIT 1
+            """, (guest['guest_id'],))
+            fav_row = cursor.fetchone()
+            favourite_destination = fav_row["destination"] if fav_row else "No trips yet"
+
+            cursor.execute("""
+                SELECT b.status, COUNT(*) AS count
+                FROM bookings b WHERE b.guest_id = %s
+                GROUP BY b.status
+            """, (guest['guest_id'],))
+            booking_status_dist = [{"status": r["status"], "count": int(r["count"])} for r in cursor.fetchall()]
 
             cursor.close()
             conn.close()
@@ -4525,10 +4626,16 @@ def create_app() -> Flask:
                 "total_bookings": int(total_bookings),
                 "active_bookings": int(active_bookings),
                 "completed_bookings": int(completed_bookings),
+                "cancelled_bookings": int(cancelled_bookings),
+                "upcoming_bookings": int(upcoming_bookings),
                 "total_spent": total_spent,
+                "average_booking_cost": avg_booking_cost,
                 "wishlist_count": int(wishlist_count),
                 "reviews_count": int(reviews_count),
-                "unread_notifications": int(unread_notifications)
+                "unread_notifications": int(unread_notifications),
+                "favourite_destination": favourite_destination,
+                "monthly_spending": monthly_spending,
+                "booking_status_distribution": booking_status_dist
             }}), 200
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500

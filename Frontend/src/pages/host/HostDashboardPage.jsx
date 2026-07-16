@@ -1,17 +1,19 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import hostAPI from '../../api/hostApi'
+import DashboardFilter from '../../components/DashboardFilter'
+import ExportButton from '../../components/ExportButton'
 import {
   HiOutlineBuildingOffice2, HiOutlineCalendarDays,
   HiOutlineCurrencyRupee, HiOutlineStar, HiOutlineArrowUpRight,
-  HiOutlineArrowDownRight, HiOutlineClock
+  HiOutlineArrowDownRight, HiOutlineClock, HiOutlineArrowPath
 } from 'react-icons/hi2'
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts'
 
-const COLORS = ['#FF385C', '#3B82F6', '#22C55E', '#F59E0B', '#8B5CF6', '#EC4899']
+const COLORS = ['#F43F5E', '#3B82F6', '#22C55E', '#F59E0B', '#8B5CF6', '#EC4899']
 
 function StatCard({ icon: Icon, label, value, change, isPositive, loading }) {
   return (
@@ -59,7 +61,6 @@ function BookingRow({ booking }) {
     <tr className="border-b border-divider last:border-0 hover:bg-background/50 transition-colors">
       <td className="py-3 px-4">
         <p className="text-sm font-medium text-main-text">{booking.guest_name || 'Guest'}</p>
-        <p className="text-xs text-secondary-text">{booking.guest_email || ''}</p>
       </td>
       <td className="py-3 px-4 text-sm text-main-text">{booking.property_title}</td>
       <td className="py-3 px-4 text-sm text-secondary-text">{booking.check_in}</td>
@@ -92,6 +93,21 @@ function CheckinCard({ checkin }) {
   )
 }
 
+function ChartTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="bg-white border border-divider rounded-xl shadow-card p-3">
+      <p className="text-xs font-semibold text-main-text mb-1">{label}</p>
+      {payload.map((p, i) => (
+        <p key={i} className="text-xs" style={{ color: p.color }}>
+          {p.name}: {p.name?.toLowerCase().includes('earnings') || p.name?.toLowerCase().includes('revenue')
+            ? `₹${Number(p.value).toLocaleString('en-IN')}` : p.value}
+        </p>
+      ))}
+    </div>
+  )
+}
+
 function EmptyState({ message }) {
   return (
     <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -110,80 +126,84 @@ export default function HostDashboardPage() {
   const [chartData, setChartData] = useState([])
   const [reviews, setReviews] = useState([])
   const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState({ key: 'all', start: null, end: null })
   const navigate = useNavigate()
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [statsRes, bookingsRes, checkinsRes, chartRes, reviewsRes] = await Promise.allSettled([
-          hostAPI.getDashboardKPI(),
-          hostAPI.getRecentBookings(),
-          hostAPI.getUpcomingCheckins(),
-          hostAPI.getMonthlyEarnings(),
-          hostAPI.getRecentReviews()
-        ])
-        if (statsRes.status === 'fulfilled' && statsRes.value.data.status === 'success') {
-          setStats(statsRes.value.data.data)
-        }
-        if (bookingsRes.status === 'fulfilled' && bookingsRes.value.data.status === 'success') {
-          setBookings(bookingsRes.value.data.data || [])
-        }
-        if (checkinsRes.status === 'fulfilled' && checkinsRes.value.data.status === 'success') {
-          setCheckins(checkinsRes.value.data.data || [])
-        }
-        if (chartRes.status === 'fulfilled' && chartRes.value.data.status === 'success') {
-          setChartData(chartRes.value.data.data || [])
-        }
-        if (reviewsRes.status === 'fulfilled' && reviewsRes.value.data.status === 'success') {
-          setReviews(reviewsRes.value.data.data || [])
-        }
-      } catch (e) {
-        console.error('Dashboard load error:', e)
-      } finally {
-        setLoading(false)
-      }
+  const loadData = async () => {
+    setLoading(true)
+    try {
+      const [statsRes, bookingsRes, checkinsRes, chartRes, reviewsRes] = await Promise.allSettled([
+        hostAPI.getDashboardKPI(),
+        hostAPI.getRecentBookings(),
+        hostAPI.getUpcomingCheckins(),
+        hostAPI.getMonthlyEarnings(),
+        hostAPI.getRecentReviews()
+      ])
+      if (statsRes.status === 'fulfilled' && statsRes.value.data.status === 'success') setStats(statsRes.value.data.data)
+      if (bookingsRes.status === 'fulfilled' && bookingsRes.value.data.status === 'success') setBookings(bookingsRes.value.data.data || [])
+      if (checkinsRes.status === 'fulfilled' && checkinsRes.value.data.status === 'success') setCheckins(checkinsRes.value.data.data || [])
+      if (chartRes.status === 'fulfilled' && chartRes.value.data.status === 'success') setChartData(chartRes.value.data.data || [])
+      if (reviewsRes.status === 'fulfilled' && reviewsRes.value.data.status === 'success') setReviews(reviewsRes.value.data.data || [])
+    } catch (e) {
+      console.error('Dashboard load error:', e)
+    } finally {
+      setLoading(false)
     }
-    load()
-  }, [])
+  }
+
+  useEffect(() => { loadData() }, [])
+
+  const bookingStatusDist = stats?.booking_status_distribution || []
+  const propertyPerformance = stats?.property_performance || []
+  const recentBookings = useMemo(() => {
+    let data = bookings
+    if (filter.start) {
+      data = data.filter(b => b.check_in >= filter.start && (!filter.end || b.check_in <= filter.end))
+    }
+    return data.slice(0, 8)
+  }, [bookings, filter])
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-2xl font-bold text-main-text">Dashboard</h1>
-        <p className="text-sm text-secondary-text mt-1">Welcome back, here's your property overview</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-main-text">Dashboard</h1>
+          <p className="text-sm text-secondary-text mt-1">Welcome back, here's your property overview</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={loadData} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-secondary-text bg-white border border-divider rounded-lg hover:bg-divider transition-colors">
+            <HiOutlineArrowPath className="w-3.5 h-3.5" /> Refresh
+          </button>
+          <ExportButton data={bookings.map(b => ({ guest: b.guest_name, property: b.property_title, check_in: b.check_in, check_out: b.check_out, status: b.status, amount: b.total_price }))} filename="host-bookings" title="Host Bookings Report" />
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          icon={HiOutlineBuildingOffice2}
-          label="Total Properties"
-          value={stats?.total_properties ?? 0}
-          loading={loading}
-        />
-        <StatCard
-          icon={HiOutlineCalendarDays}
-          label="Total Bookings"
-          value={stats?.total_bookings ?? 0}
-          change={stats?.bookings_this_month}
-          isPositive={stats?.bookings_this_month > 0}
-          loading={loading}
-        />
-        <StatCard
-          icon={HiOutlineCurrencyRupee}
-          label="Monthly Earnings"
-          value={`₹${Number(stats?.monthly_earnings || 0).toLocaleString('en-IN')}`}
-          change={stats?.earnings_growth_pct}
-          isPositive={stats?.earnings_growth_pct >= 0}
-          loading={loading}
-        />
-        <StatCard
-          icon={HiOutlineStar}
-          label="Average Rating"
-          value={stats?.average_rating?.toFixed(1) || '0.0'}
-          change={stats?.rating_change}
-          isPositive={stats?.rating_change >= 0}
-          loading={loading}
-        />
+      <DashboardFilter value={filter} onChange={setFilter} />
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        <StatCard icon={HiOutlineBuildingOffice2} label="Total Properties" value={stats?.total_properties ?? 0} loading={loading} />
+        <StatCard icon={HiOutlineCalendarDays} label="Total Bookings" value={stats?.total_bookings ?? 0} change={stats?.bookings_this_month} isPositive={stats?.bookings_this_month > 0} loading={loading} />
+        <StatCard icon={HiOutlineCurrencyRupee} label="Monthly Revenue" value={`₹${Number(stats?.monthly_earnings || 0).toLocaleString('en-IN')}`} change={stats?.earnings_growth_pct} isPositive={stats?.earnings_growth_pct >= 0} loading={loading} />
+        <StatCard icon={HiOutlineStar} label="Average Rating" value={stats?.average_rating?.toFixed(1) || '0.0'} change={stats?.rating_change} isPositive={stats?.rating_change >= 0} loading={loading} />
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="dashboard-card">
+          <p className="text-xs text-secondary-text font-medium mb-1">Annual Revenue</p>
+          <p className="text-xl font-bold text-main-text">₹{Number(stats?.annual_earnings || 0).toLocaleString('en-IN')}</p>
+        </div>
+        <div className="dashboard-card">
+          <p className="text-xs text-secondary-text font-medium mb-1">Completed</p>
+          <p className="text-xl font-bold text-success">{stats?.completed_bookings ?? 0}</p>
+        </div>
+        <div className="dashboard-card">
+          <p className="text-xs text-secondary-text font-medium mb-1">Pending</p>
+          <p className="text-xl font-bold text-warning">{stats?.pending_bookings ?? 0}</p>
+        </div>
+        <div className="dashboard-card">
+          <p className="text-xs text-secondary-text font-medium mb-1">Cancelled</p>
+          <p className="text-xl font-bold text-danger">{stats?.cancelled_bookings ?? 0}</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -206,12 +226,9 @@ export default function HostDashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
                 <XAxis dataKey="month_label" tick={{ fontSize: 12, fill: '#6B7280' }} />
                 <YAxis tick={{ fontSize: 12, fill: '#6B7280' }} />
-                <Tooltip
-                  contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }}
-                  formatter={(value, name) => [name === 'earnings' ? `₹${Number(value).toLocaleString('en-IN')}` : value, name === 'earnings' ? 'Revenue' : 'Bookings']}
-                />
-                <Area type="monotone" dataKey="earnings" stroke="#FF385C" strokeWidth={2.5} fill="url(#colorRevenue)" />
-                <Line type="monotone" dataKey="bookings" stroke="#3B82F6" strokeWidth={2} dot={{ r: 3 }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Area type="monotone" dataKey="earnings" name="Earnings" stroke="#FF385C" strokeWidth={2.5} fill="url(#colorRevenue)" />
+                <Line type="monotone" dataKey="bookings" name="Bookings" stroke="#3B82F6" strokeWidth={2} dot={{ r: 3 }} />
               </AreaChart>
             </ResponsiveContainer>
           ) : (
@@ -238,6 +255,52 @@ export default function HostDashboardPage() {
         </div>
       </div>
 
+      {bookingStatusDist.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="dashboard-card">
+            <h2 className="text-lg font-semibold text-main-text mb-4">Booking Status</h2>
+            <ResponsiveContainer width="100%" height={260}>
+              <PieChart>
+                <Pie data={bookingStatusDist} cx="50%" cy="50%" innerRadius={55} outerRadius={95} paddingAngle={4} dataKey="count" nameKey="status"
+                  label={({ status, percent }) => `${status} ${(percent * 100).toFixed(0)}%`}>
+                  {bookingStatusDist.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          {propertyPerformance.length > 0 && (
+            <div className="dashboard-card">
+              <h2 className="text-lg font-semibold text-main-text mb-4">Property Performance</h2>
+              <div className="overflow-x-auto -mx-1">
+                <table className="w-full min-w-[400px]">
+                  <thead>
+                    <tr className="border-b border-divider">
+                      <th className="text-left text-xs font-semibold text-secondary-text py-2 px-4">Property</th>
+                      <th className="text-left text-xs font-semibold text-secondary-text py-2 px-4">Bookings</th>
+                      <th className="text-left text-xs font-semibold text-secondary-text py-2 px-4">Rating</th>
+                      <th className="text-left text-xs font-semibold text-secondary-text py-2 px-4">Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {propertyPerformance.slice(0, 5).map((p, i) => (
+                      <tr key={i} className="border-b border-divider last:border-0 hover:bg-background/50 transition-colors">
+                        <td className="py-3 px-4 text-sm font-medium text-main-text">{p.title}</td>
+                        <td className="py-3 px-4 text-sm text-secondary-text">{p.total_bookings}</td>
+                        <td className="py-3 px-4 text-sm text-warning">{p.avg_rating > 0 ? `★ ${p.avg_rating}` : '-'}</td>
+                        <td className="py-3 px-4 text-sm font-semibold text-main-text">₹{Number(p.revenue).toLocaleString('en-IN')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="dashboard-card">
           <div className="flex items-center justify-between mb-4">
@@ -248,7 +311,7 @@ export default function HostDashboardPage() {
             <div className="space-y-2">
               {[1,2,3].map(i => <div key={i} className="h-12 bg-divider rounded-lg animate-pulse" />)}
             </div>
-          ) : bookings.length > 0 ? (
+          ) : recentBookings.length > 0 ? (
             <div className="overflow-x-auto -mx-1">
               <table className="w-full min-w-[600px]">
                 <thead>
@@ -262,7 +325,7 @@ export default function HostDashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {bookings.slice(0, 5).map((b, i) => <BookingRow key={i} booking={b} />)}
+                  {recentBookings.map((b, i) => <BookingRow key={i} booking={b} />)}
                 </tbody>
               </table>
             </div>

@@ -1,15 +1,17 @@
 import { useState, useEffect, useMemo } from 'react'
 import adminAPI from '../../api/adminApi'
 import { formatRupees } from '../../utils/currency'
+import DashboardFilter from '../../components/DashboardFilter'
+import ExportButton from '../../components/ExportButton'
 import {
   HiOutlineUserGroup, HiOutlineUserCircle, HiOutlineClock,
   HiOutlineBuildingOffice2, HiOutlineCalendarDays, HiOutlineCheckCircle,
   HiOutlineCurrencyRupee, HiOutlineStar, HiOutlineArrowUpRight,
-  HiOutlineArrowDownRight, HiOutlineExclamationTriangle
+  HiOutlineArrowDownRight, HiOutlineExclamationTriangle, HiOutlineArrowPath
 } from 'react-icons/hi2'
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts'
 
 const COLORS = ['#F43F5E', '#3B82F6', '#22C55E', '#F59E0B', '#8B5CF6', '#EC4899']
@@ -61,7 +63,6 @@ function BookingRow({ booking }) {
     <tr className="border-b border-divider last:border-0 hover:bg-background/50 transition-colors">
       <td className="py-3 px-4">
         <p className="text-sm font-medium text-main-text">{booking.guest_name || 'Guest'}</p>
-        <p className="text-xs text-secondary-text">{booking.guest_email || ''}</p>
       </td>
       <td className="py-3 px-4 text-sm text-main-text">{booking.property_title}</td>
       <td className="py-3 px-4 text-sm text-secondary-text">{booking.host_name || '-'}</td>
@@ -87,21 +88,26 @@ function PendingHostCard({ host, onApprove, onReject, processing }) {
         <p className="text-xs text-secondary-text truncate">{host.email}</p>
       </div>
       <div className="flex gap-2 flex-shrink-0">
-        <button
-          onClick={() => onApprove(host.host_id || host.id)}
-          disabled={processing}
-          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-success/10 text-success hover:bg-success/20 transition-colors disabled:opacity-50"
-        >
-          Approve
-        </button>
-        <button
-          onClick={() => onReject(host.host_id || host.id)}
-          disabled={processing}
-          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-danger/10 text-danger hover:bg-danger/20 transition-colors disabled:opacity-50"
-        >
-          Reject
-        </button>
+        <button onClick={() => onApprove(host.host_id || host.id)} disabled={processing}
+          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-success/10 text-success hover:bg-success/20 transition-colors disabled:opacity-50">Approve</button>
+        <button onClick={() => onReject(host.host_id || host.id)} disabled={processing}
+          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-danger/10 text-danger hover:bg-danger/20 transition-colors disabled:opacity-50">Reject</button>
       </div>
+    </div>
+  )
+}
+
+function ChartTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="bg-white border border-divider rounded-xl shadow-card p-3">
+      <p className="text-xs font-semibold text-main-text mb-1">{label}</p>
+      {payload.map((p, i) => (
+        <p key={i} className="text-xs" style={{ color: p.color }}>
+          {p.name}: {p.name?.toLowerCase().includes('revenue') || p.name?.toLowerCase().includes('earnings')
+            ? formatRupees(p.value) : p.value}
+        </p>
+      ))}
     </div>
   )
 }
@@ -138,10 +144,7 @@ export default function AdminDashboardPage() {
   const [complaints, setComplaints] = useState([])
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
-
-  useEffect(() => {
-    loadData()
-  }, [])
+  const [filter, setFilter] = useState({ key: 'all', start: null, end: null })
 
   const loadData = async () => {
     setLoading(true)
@@ -152,19 +155,10 @@ export default function AdminDashboardPage() {
         adminAPI.getHosts(),
         adminAPI.getComplaints()
       ])
-
-      if (statsRes.status === 'fulfilled' && statsRes.value.data.status === 'success') {
-        setStats(statsRes.value.data.data)
-      }
-      if (bookingsRes.status === 'fulfilled' && bookingsRes.value.data.status === 'success') {
-        setBookings(bookingsRes.value.data.data || [])
-      }
-      if (hostsRes.status === 'fulfilled' && hostsRes.value.data.status === 'success') {
-        setHosts(hostsRes.value.data.data || [])
-      }
-      if (complaintsRes.status === 'fulfilled' && complaintsRes.value.data.status === 'success') {
-        setComplaints(complaintsRes.value.data.data || [])
-      }
+      if (statsRes.status === 'fulfilled' && statsRes.value.data.status === 'success') setStats(statsRes.value.data.data)
+      if (bookingsRes.status === 'fulfilled' && bookingsRes.value.data.status === 'success') setBookings(bookingsRes.value.data.data || [])
+      if (hostsRes.status === 'fulfilled' && hostsRes.value.data.status === 'success') setHosts(hostsRes.value.data.data || [])
+      if (complaintsRes.status === 'fulfilled' && complaintsRes.value.data.status === 'success') setComplaints(complaintsRes.value.data.data || [])
     } catch (e) {
       console.error('Admin dashboard load error:', e)
     } finally {
@@ -172,28 +166,45 @@ export default function AdminDashboardPage() {
     }
   }
 
+  useEffect(() => { loadData() }, [])
+
   const pendingHosts = useMemo(() => hosts.filter(h => h.status === 'pending'), [hosts])
-  const recentBookings = useMemo(() => bookings.slice(0, 5), [bookings])
+  const recentBookings = useMemo(() => {
+    let data = bookings
+    if (filter.start) {
+      data = data.filter(b => b.check_in >= filter.start && (!filter.end || b.check_in <= filter.end))
+    }
+    return data.slice(0, 5)
+  }, [bookings, filter])
   const openComplaints = useMemo(() => complaints.filter(c => c.status !== 'Resolved' && c.status !== 'Closed').length, [complaints])
+  const resolvedComplaints = useMemo(() => complaints.filter(c => c.status === 'Resolved' || c.status === 'Closed').length, [complaints])
 
   const revenueChartData = stats?.monthly_revenue_chart || []
   const userGrowthData = stats?.user_growth || []
   const hostGrowthData = stats?.host_growth || []
   const propertyTypeDist = stats?.property_type_distribution || []
   const bookingStatusDist = stats?.booking_status_distribution || []
+  const reviewAnalytics = stats?.review_analytics || []
+  const totalBookings = stats?.total_bookings || 1
+  const cancellationRate = stats?.cancelled_bookings ? ((stats.cancelled_bookings / totalBookings) * 100).toFixed(1) : 0
+
+  const complaintData = [
+    { name: 'Open', value: openComplaints },
+    { name: 'Resolved', value: resolvedComplaints },
+  ].filter(d => d.value > 0)
+
+  const exportData = bookings.map(b => ({
+    guest: b.guest_name, property: b.property_title, host: b.host_name,
+    check_in: b.check_in, status: b.status, amount: b.total_price
+  }))
 
   const handleApproveHost = async (hostId) => {
     setProcessing(true)
     try {
       await adminAPI.approveHost(hostId)
-      setHosts(prev => prev.map(h =>
-        (h.host_id || h.id) === hostId ? { ...h, status: 'approved' } : h
-      ))
-    } catch (e) {
-      console.error('Approve failed:', e)
-    } finally {
-      setProcessing(false)
-    }
+      setHosts(prev => prev.map(h => (h.host_id || h.id) === hostId ? { ...h, status: 'approved' } : h))
+    } catch (e) { console.error('Approve failed:', e) }
+    finally { setProcessing(false) }
   }
 
   const handleRejectHost = async (hostId) => {
@@ -201,79 +212,60 @@ export default function AdminDashboardPage() {
     try {
       await adminAPI.rejectHost(hostId)
       setHosts(prev => prev.filter(h => (h.host_id || h.id) !== hostId))
-    } catch (e) {
-      console.error('Reject failed:', e)
-    } finally {
-      setProcessing(false)
-    }
+    } catch (e) { console.error('Reject failed:', e) }
+    finally { setProcessing(false) }
   }
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-main-text">Admin Dashboard</h1>
           <p className="text-sm text-secondary-text mt-1">Platform-wide statistics and management</p>
         </div>
-        <button onClick={loadData} className="btn-outline text-sm">
-          Refresh Data
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={loadData} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-secondary-text bg-white border border-divider rounded-lg hover:bg-divider transition-colors">
+            <HiOutlineArrowPath className="w-3.5 h-3.5" /> Refresh
+          </button>
+          <ExportButton data={exportData} filename="admin-bookings" title="Platform Bookings Report" />
+        </div>
       </div>
+
+      <DashboardFilter value={filter} onChange={setFilter} />
 
       {loading ? (
         <SkeletonGrid />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            icon={HiOutlineUserGroup}
-            label="Total Users"
-            value={stats?.total_users ?? 0}
-            loading={loading}
-          />
-          <StatCard
-            icon={HiOutlineUserCircle}
-            label="Approved Hosts"
-            value={stats?.active_hosts ?? 0}
-            loading={loading}
-          />
-          <StatCard
-            icon={HiOutlineCheckCircle}
-            label="Completed Bookings"
-            value={stats?.completed_bookings ?? 0}
-            loading={loading}
-          />
-          <StatCard
-            icon={HiOutlineBuildingOffice2}
-            label="Total Properties"
-            value={stats?.total_properties ?? 0}
-            loading={loading}
-          />
-          <StatCard
-            icon={HiOutlineCalendarDays}
-            label="Total Bookings"
-            value={stats?.total_bookings ?? 0}
-            loading={loading}
-          />
-          <StatCard
-            icon={HiOutlineClock}
-            label="Cancelled Bookings"
-            value={stats?.cancelled_bookings ?? 0}
-            loading={loading}
-          />
-          <StatCard
-            icon={HiOutlineCurrencyRupee}
-            label="Platform Revenue"
-            value={formatRupees(stats?.total_revenue ?? 0)}
-            loading={loading}
-          />
-          <StatCard
-            icon={HiOutlineStar}
-            label="Total Reviews"
-            value={stats?.total_reviews ?? 0}
-            loading={loading}
-          />
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+          <StatCard icon={HiOutlineUserGroup} label="Total Users" value={stats?.total_users ?? 0} loading={loading} />
+          <StatCard icon={HiOutlineUserCircle} label="Approved Hosts" value={stats?.active_hosts ?? 0} loading={loading} />
+          <StatCard icon={HiOutlineCheckCircle} label="Completed" value={stats?.completed_bookings ?? 0} loading={loading} />
+          <StatCard icon={HiOutlineBuildingOffice2} label="Properties" value={stats?.total_properties ?? 0} loading={loading} />
+          <StatCard icon={HiOutlineCalendarDays} label="Total Bookings" value={stats?.total_bookings ?? 0} loading={loading} />
+          <StatCard icon={HiOutlineClock} label="Cancelled" value={stats?.cancelled_bookings ?? 0} loading={loading} />
+          <StatCard icon={HiOutlineCurrencyRupee} label="Platform Revenue" value={formatRupees(stats?.total_revenue ?? 0)} loading={loading} />
+          <StatCard icon={HiOutlineStar} label="Total Reviews" value={stats?.total_reviews ?? 0} loading={loading} />
         </div>
       )}
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="dashboard-card">
+          <p className="text-xs text-secondary-text font-medium mb-1">Monthly Revenue</p>
+          <p className="text-xl font-bold text-main-text">{formatRupees(stats?.revenue_this_month || 0)}</p>
+        </div>
+        <div className="dashboard-card">
+          <p className="text-xs text-secondary-text font-medium mb-1">Cancellation Rate</p>
+          <p className="text-xl font-bold text-danger">{cancellationRate}%</p>
+        </div>
+        <div className="dashboard-card">
+          <p className="text-xs text-secondary-text font-medium mb-1">Open Complaints</p>
+          <p className="text-xl font-bold text-warning">{openComplaints}</p>
+        </div>
+        <div className="dashboard-card">
+          <p className="text-xs text-secondary-text font-medium mb-1">Pending Hosts</p>
+          <p className="text-xl font-bold text-info">{stats?.pending_hosts ?? 0}</p>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 dashboard-card">
@@ -294,12 +286,9 @@ export default function AdminDashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
                 <XAxis dataKey="month_label" tick={{ fontSize: 12, fill: '#6B7280' }} />
                 <YAxis tick={{ fontSize: 12, fill: '#6B7280' }} />
-                <Tooltip
-                  contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }}
-                  formatter={(value, name) => [name === 'revenue' || name === 'earnings' ? formatRupees(value) : value, name === 'revenue' || name === 'earnings' ? 'Revenue' : 'Bookings']}
-                />
-                <Area type="monotone" dataKey="revenue" stroke="#F43F5E" strokeWidth={2.5} fill="url(#colorRevenue)" />
-                <Line type="monotone" dataKey="bookings" stroke="#3B82F6" strokeWidth={2} dot={{ r: 3 }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#F43F5E" strokeWidth={2.5} fill="url(#colorRevenue)" />
+                <Line type="monotone" dataKey="bookings" name="Bookings" stroke="#3B82F6" strokeWidth={2} dot={{ r: 3 }} />
               </AreaChart>
             </ResponsiveContainer>
           ) : (
@@ -339,9 +328,7 @@ export default function AdminDashboardPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="dashboard-card">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-main-text">User Growth</h2>
-          </div>
+          <h2 className="text-lg font-semibold text-main-text mb-4">User Growth</h2>
           {loading ? (
             <div className="h-64 animate-pulse bg-divider rounded-xl" />
           ) : userGrowthData.length > 0 ? (
@@ -350,9 +337,7 @@ export default function AdminDashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
                 <XAxis dataKey="month_label" tick={{ fontSize: 12, fill: '#6B7280' }} />
                 <YAxis tick={{ fontSize: 12, fill: '#6B7280' }} />
-                <Tooltip
-                  contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }}
-                />
+                <Tooltip content={<ChartTooltip />} />
                 <Line type="monotone" dataKey="users" stroke="#3B82F6" strokeWidth={2.5} dot={{ r: 3 }} name="Users" />
               </LineChart>
             </ResponsiveContainer>
@@ -362,9 +347,7 @@ export default function AdminDashboardPage() {
         </div>
 
         <div className="dashboard-card">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-main-text">Host Growth</h2>
-          </div>
+          <h2 className="text-lg font-semibold text-main-text mb-4">Host Growth</h2>
           {loading ? (
             <div className="h-64 animate-pulse bg-divider rounded-xl" />
           ) : hostGrowthData.length > 0 ? (
@@ -373,9 +356,7 @@ export default function AdminDashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
                 <XAxis dataKey="month_label" tick={{ fontSize: 12, fill: '#6B7280' }} />
                 <YAxis tick={{ fontSize: 12, fill: '#6B7280' }} />
-                <Tooltip
-                  contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }}
-                />
+                <Tooltip content={<ChartTooltip />} />
                 <Line type="monotone" dataKey="hosts" stroke="#8B5CF6" strokeWidth={2.5} dot={{ r: 3 }} name="Hosts" />
               </LineChart>
             </ResponsiveContainer>
@@ -385,28 +366,17 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="dashboard-card">
-          <h2 className="text-lg font-semibold text-main-text mb-4">Property Type Distribution</h2>
+          <h2 className="text-lg font-semibold text-main-text mb-4">Property Types</h2>
           {loading ? (
             <div className="h-64 animate-pulse bg-divider rounded-xl" />
           ) : propertyTypeDist.length > 0 ? (
             <ResponsiveContainer width="100%" height={260}>
               <PieChart>
-                <Pie
-                  data={propertyTypeDist}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={4}
-                  dataKey="count"
-                  nameKey="type"
-                  label={({ type, percent }) => `${type} ${(percent * 100).toFixed(0)}%`}
-                >
-                  {propertyTypeDist.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                  ))}
+                <Pie data={propertyTypeDist} cx="50%" cy="50%" innerRadius={55} outerRadius={95} paddingAngle={4} dataKey="count" nameKey="type"
+                  label={({ type, percent }) => `${type} ${(percent * 100).toFixed(0)}%`}>
+                  {propertyTypeDist.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
                 <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }} />
               </PieChart>
@@ -417,7 +387,7 @@ export default function AdminDashboardPage() {
         </div>
 
         <div className="dashboard-card">
-          <h2 className="text-lg font-semibold text-main-text mb-4">Booking Status Distribution</h2>
+          <h2 className="text-lg font-semibold text-main-text mb-4">Booking Status</h2>
           {loading ? (
             <div className="h-64 animate-pulse bg-divider rounded-xl" />
           ) : bookingStatusDist.length > 0 ? (
@@ -428,9 +398,7 @@ export default function AdminDashboardPage() {
                 <YAxis tick={{ fontSize: 12, fill: '#6B7280' }} />
                 <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }} />
                 <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                  {bookingStatusDist.map((entry, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                  ))}
+                  {bookingStatusDist.map((entry, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -438,7 +406,46 @@ export default function AdminDashboardPage() {
             <EmptyState message="No booking data yet" />
           )}
         </div>
+
+        <div className="dashboard-card">
+          <h2 className="text-lg font-semibold text-main-text mb-4">Reviews by Rating</h2>
+          {loading ? (
+            <div className="h-64 animate-pulse bg-divider rounded-xl" />
+          ) : reviewAnalytics.length > 0 ? (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={reviewAnalytics}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                <XAxis dataKey="rating" tick={{ fontSize: 12, fill: '#6B7280' }} />
+                <YAxis tick={{ fontSize: 12, fill: '#6B7280' }} />
+                <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }} />
+                <Bar dataKey="count" name="Reviews" radius={[6, 6, 0, 0]}>
+                  {reviewAnalytics.map((entry, i) => <Cell key={i} fill={COLORS[entry.rating - 1] || COLORS[0]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <EmptyState message="No review data yet" />
+          )}
+        </div>
       </div>
+
+      {complaintData.length > 0 && (
+        <div className="dashboard-card">
+          <h2 className="text-lg font-semibold text-main-text mb-4">Complaint Overview</h2>
+          <div className="flex items-center justify-center">
+            <ResponsiveContainer width="100%" height={200}>
+              <PieChart>
+                <Pie data={complaintData} cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={4} dataKey="value" nameKey="name"
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                  {complaintData.map((_, i) => <Cell key={i} fill={i === 0 ? '#F59E0B' : '#22C55E'} />)}
+                </Pie>
+                <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="dashboard-card">
@@ -477,9 +484,7 @@ export default function AdminDashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-main-text">Pending Host Approvals</h2>
             {pendingHosts.length > 0 && (
-              <span className="text-xs text-warning font-medium bg-warning/10 px-2.5 py-1 rounded-full">
-                {pendingHosts.length} pending
-              </span>
+              <span className="text-xs text-warning font-medium bg-warning/10 px-2.5 py-1 rounded-full">{pendingHosts.length} pending</span>
             )}
           </div>
           {loading ? (
@@ -489,13 +494,7 @@ export default function AdminDashboardPage() {
           ) : pendingHosts.length > 0 ? (
             <div className="space-y-2 max-h-72 overflow-y-auto">
               {pendingHosts.map((h, i) => (
-                <PendingHostCard
-                  key={i}
-                  host={h}
-                  onApprove={handleApproveHost}
-                  onReject={handleRejectHost}
-                  processing={processing}
-                />
+                <PendingHostCard key={i} host={h} onApprove={handleApproveHost} onReject={handleRejectHost} processing={processing} />
               ))}
             </div>
           ) : (
