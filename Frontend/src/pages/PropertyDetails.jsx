@@ -87,23 +87,28 @@ const PropertyDetails = () => {
     }
   }
 
-  const handleDateSelect = (dateStr, endDateOrError) => {
-    if (endDateOrError === 'overlap') {
-      setDateError('Selected dates overlap with an existing booking or blocked period')
-      return
-    }
-    if (!checkInDate || (checkInDate && checkOutDate)) {
-      setCheckInDate(dateStr)
-      setCheckOutDate('')
-      setDateError('')
-    } else if (dateStr < checkInDate) {
-      setCheckInDate(dateStr)
-      setCheckOutDate('')
-    } else if (dateStr === checkInDate) {
-      return
-    } else {
-      setCheckOutDate(dateStr)
-      setDateError('')
+  const handleDateSelect = (action) => {
+    switch (action.type) {
+      case 'set-checkin':
+        setCheckInDate(action.date)
+        setCheckOutDate('')
+        setDateError('')
+        break
+      case 'set-checkout':
+        setCheckInDate(action.checkIn)
+        setCheckOutDate(action.checkOut)
+        setDateError('')
+        break
+      case 'new-selection':
+        setCheckInDate(action.date)
+        setCheckOutDate('')
+        setDateError('')
+        break
+      case 'overlap':
+        setDateError('Selected dates overlap with an existing booking or blocked period')
+        break
+      default:
+        break
     }
   }
 

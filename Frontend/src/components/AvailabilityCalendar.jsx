@@ -98,17 +98,20 @@ export default function AvailabilityCalendar({
     if (status === 'past' || status === 'booked' || status === 'blocked') return
 
     if (mode === 'guest' && onDateSelect) {
-      if (!selectedCheckIn || (selectedCheckIn && selectedCheckOut)) {
-        onDateSelect(dateStr, null)
+      const hasCheckIn = !!selectedCheckIn
+      const hasCheckOut = !!selectedCheckOut
+
+      if (!hasCheckIn) {
+        onDateSelect({ type: 'set-checkin', date: dateStr })
+      } else if (hasCheckIn && hasCheckOut) {
+        onDateSelect({ type: 'new-selection', date: dateStr })
+      } else if (dateStr <= selectedCheckIn) {
+        onDateSelect({ type: 'set-checkin', date: dateStr })
       } else {
-        if (dateStr <= selectedCheckIn) {
-          onDateSelect(dateStr, null)
+        if (rangesOverlap(selectedCheckIn, dateStr, allUnavailable)) {
+          onDateSelect({ type: 'overlap', date: dateStr })
         } else {
-          if (rangesOverlap(selectedCheckIn, dateStr, allUnavailable)) {
-            onDateSelect(dateStr, 'overlap')
-          } else {
-            onDateSelect(dateStr, selectedCheckIn)
-          }
+          onDateSelect({ type: 'set-checkout', checkIn: selectedCheckIn, checkOut: dateStr })
         }
       }
     }
@@ -255,7 +258,6 @@ export default function AvailabilityCalendar({
 
   return (
     <div className="space-y-3">
-      {/* Month Navigation */}
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold text-main-text">
           {MONTHS[viewMonth]} {viewYear}
@@ -282,7 +284,6 @@ export default function AvailabilityCalendar({
         </div>
       </div>
 
-      {/* Day Headers */}
       <div className="grid grid-cols-7 gap-1">
         {DAYS.map(d => (
           <div key={d} className="text-center text-[10px] font-semibold text-secondary-text uppercase py-1">
@@ -291,12 +292,10 @@ export default function AvailabilityCalendar({
         ))}
       </div>
 
-      {/* Calendar Grid */}
       <div className="grid grid-cols-7 gap-1">
         {renderMonth(viewYear, viewMonth)}
       </div>
 
-      {/* Tooltip */}
       {tooltip && (
         <div
           className="fixed z-50 px-2.5 py-1 bg-main-text text-white text-xs rounded-lg shadow-lg pointer-events-none"
@@ -306,7 +305,6 @@ export default function AvailabilityCalendar({
         </div>
       )}
 
-      {/* Legend */}
       <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-divider">
         <div className="flex items-center gap-1.5">
           <div className="w-2.5 h-2.5 rounded-full bg-success/50" />
@@ -328,7 +326,6 @@ export default function AvailabilityCalendar({
         )}
       </div>
 
-      {/* Host Block Date Form */}
       {mode === 'host' && showBlockForm && blockStart && blockEnd && (
         <div className="mt-3 p-3 bg-background rounded-xl border border-divider space-y-2 animate-fade-in">
           <div className="flex items-center gap-2 text-xs text-main-text font-medium">
@@ -359,7 +356,6 @@ export default function AvailabilityCalendar({
         </div>
       )}
 
-      {/* Host: Blocked Dates List */}
       {mode === 'host' && blockedDatesList.length > 0 && (
         <div className="mt-3 space-y-1.5">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-secondary-text">Blocked Periods</p>
