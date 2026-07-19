@@ -1,3 +1,5 @@
+import autoTable from 'jspdf-autotable'
+
 const BRAND = { r: 244, g: 63, b: 94 }
 const DARK = { r: 17, g: 24, b: 39 }
 const GRAY = { r: 107, g: 114, b: 128 }
@@ -151,7 +153,7 @@ export function drawStatCards(doc, y, cards, columns = 3) {
 export function drawTable(doc, y, headers, rows, options = {}) {
   if (!rows || rows.length === 0) return y
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y,
     margin: { left: ML, right: MR },
     head: [headers],

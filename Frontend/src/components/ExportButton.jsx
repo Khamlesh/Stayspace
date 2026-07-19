@@ -72,12 +72,16 @@ async function exportPDF(data, filename, title) {
 }
 
 async function exportReportPDF(reportType, reportData, filename) {
-  if (reportType === 'admin') {
-    const { generateAdminReport } = await import('../utils/adminReportGenerator')
-    generateAdminReport(reportData)
-  } else if (reportType === 'host') {
-    const { generateHostReport } = await import('../utils/hostReportGenerator')
-    generateHostReport(reportData)
+  try {
+    if (reportType === 'admin') {
+      const { generateAdminReport } = await import('../utils/adminReportGenerator')
+      generateAdminReport(reportData)
+    } else if (reportType === 'host') {
+      const { generateHostReport } = await import('../utils/hostReportGenerator')
+      generateHostReport(reportData)
+    }
+  } catch (err) {
+    console.error('PDF report generation failed:', err)
   }
 }
 

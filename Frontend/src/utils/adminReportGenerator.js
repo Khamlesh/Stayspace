@@ -1,5 +1,4 @@
 import jsPDF from 'jspdf'
-import 'jspdf-autotable'
 import {
   drawCoverPage, drawPageHeader, drawSectionTitle, drawStatCards,
   drawTable, drawDisclaimer, checkPageBreak, addFooters,
