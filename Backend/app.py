@@ -331,6 +331,36 @@ CREATE TABLE IF NOT EXISTS review_reports (
     INDEX idx_rpt_review (review_id),
     INDEX idx_rpt_status (status)
 ) ENGINE=InnoDB;
+
+-- 22. conversations Table
+CREATE TABLE IF NOT EXISTS conversations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT NOT NULL UNIQUE,
+    guest_id INT NOT NULL,
+    host_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
+    FOREIGN KEY (guest_id) REFERENCES guests(id) ON DELETE CASCADE,
+    FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE,
+    INDEX idx_conv_booking (booking_id),
+    INDEX idx_conv_guest (guest_id),
+    INDEX idx_conv_host (host_id)
+) ENGINE=InnoDB;
+
+-- 23. messages Table
+CREATE TABLE IF NOT EXISTS messages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    conversation_id INT NOT NULL,
+    sender_id INT NOT NULL,
+    sender_role ENUM('Guest', 'Host', 'Admin') NOT NULL,
+    message TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    INDEX idx_msg_conv (conversation_id),
+    INDEX idx_msg_read (is_read)
+) ENGINE=InnoDB;
 """
 
 
@@ -2755,11 +2785,36 @@ def create_app() -> Flask:
             return True
         return _check_blocked_dates(cursor, property_id, check_in, check_out)
 
+    def _ensure_conversation(cursor, booking_id):
+        cursor.execute("SELECT id FROM conversations WHERE booking_id = %s", (booking_id,))
+        if cursor.fetchone():
+            return cursor.lastrowid
+        cursor.execute("""
+            SELECT b.guest_id, p.host_id
+            FROM bookings b JOIN properties p ON p.id = b.property_id
+            WHERE b.id = %s
+        """, (booking_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        cursor.execute(
+            "INSERT INTO conversations (booking_id, guest_id, host_id) VALUES (%s, %s, %s)",
+            (booking_id, row['guest_id'], row['host_id'])
+        )
+        return cursor.lastrowid
+
     def _update_booking_statuses():
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
             today = __import__('datetime').date.today()
+
+            cursor.execute(
+                "SELECT b.id FROM bookings b LEFT JOIN conversations c ON c.booking_id = b.id "
+                "WHERE b.status IN ('Confirmed', 'Checked-In', 'Completed') AND c.id IS NULL"
+            )
+            for row in cursor.fetchall():
+                _ensure_conversation(cursor, row['id'])
 
             cursor.execute(
                 "SELECT id, check_in, check_out FROM bookings WHERE status = 'Confirmed' AND check_in <= %s",
@@ -2878,6 +2933,8 @@ def create_app() -> Flask:
             )
 
             cursor.execute("UPDATE bookings SET status = 'Confirmed' WHERE id = %s", (booking_id,))
+
+            _ensure_conversation(cursor, booking_id)
 
             _log_timeline_event(cursor, booking_id, 'created', f'Booking created by {guest["name"]}', 'Guest', guest['name'],
                                 {'check_in': check_in, 'check_out': check_out, 'total_price': total_price})
@@ -3096,6 +3153,9 @@ def create_app() -> Flask:
                 cursor.execute("UPDATE bookings SET status = %s, cancelled_by = 'Host', cancelled_at = NOW() WHERE id = %s", (new_status, booking_id))
             else:
                 cursor.execute("UPDATE bookings SET status = %s WHERE id = %s", (new_status, booking_id))
+
+            if action == 'confirm':
+                _ensure_conversation(cursor, booking_id)
 
             action_labels = {
                 'confirm': 'Booking confirmed by host',
@@ -4844,6 +4904,9 @@ def create_app() -> Flask:
             else:
                 cursor.execute("UPDATE bookings SET status = %s WHERE id = %s", (new_status, booking_id))
 
+            if action == 'confirm':
+                _ensure_conversation(cursor, booking_id)
+
             action_labels = {
                 'confirm': 'Booking confirmed by admin',
                 'cancel': 'Booking cancelled by admin',
@@ -4866,6 +4929,364 @@ def create_app() -> Flask:
             cursor.close()
             conn.close()
             return jsonify({"status": "success", "message": f"Booking {new_status.lower()}"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ──────────────────────────────────────────────
+    # CHAT & MESSAGING SYSTEM
+    # ──────────────────────────────────────────────
+
+    @app.post("/api/chat/send")
+    def chat_send():
+        body = request.get_json(silent=True) or {}
+        token = body.get('token', '') or request.headers.get('X-Auth-Token', '')
+        if not token:
+            return jsonify({"status": "error", "message": "Auth required"}), 401
+
+        conversation_id = body.get('conversation_id')
+        message_text = (body.get('message') or '').strip()
+        if not conversation_id:
+            return jsonify({"status": "error", "message": "conversation_id is required"}), 400
+        if not message_text:
+            return jsonify({"status": "error", "message": "Message cannot be empty"}), 400
+        if len(message_text) > 1000:
+            return jsonify({"status": "error", "message": "Message too long (max 1000 chars)"}), 400
+
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute("""
+                SELECT c.id, c.guest_id, c.host_id, b.property_id
+                FROM conversations c JOIN bookings b ON b.id = c.booking_id
+                WHERE c.id = %s
+            """, (conversation_id,))
+            conv = cursor.fetchone()
+            if not conv:
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Conversation not found"}), 404
+
+            sender_role = None
+            sender_id = None
+            other_user_id = None
+
+            cursor.execute("""
+                SELECT s.user_id, u.role, g.id AS guest_id, h.id AS host_id
+                FROM sessions s JOIN users u ON s.user_id = u.id
+                LEFT JOIN guests g ON g.user_id = u.id
+                LEFT JOIN hosts h ON h.user_id = u.id
+                WHERE s.session_token = %s AND s.expires_at > NOW()
+            """, (token,))
+            user_row = cursor.fetchone()
+            if not user_row:
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Invalid session"}), 401
+
+            if user_row['role'] == 'Guest' and user_row['guest_id'] == conv['guest_id']:
+                sender_role = 'Guest'
+                sender_id = user_row['guest_id']
+                cursor.execute("SELECT user_id FROM hosts WHERE id = %s", (conv['host_id'],))
+                host_row = cursor.fetchone()
+                other_user_id = host_row['user_id'] if host_row else None
+            elif user_row['role'] == 'Host' and user_row['host_id'] == conv['host_id']:
+                sender_role = 'Host'
+                sender_id = user_row['host_id']
+                cursor.execute("SELECT user_id FROM guests WHERE id = %s", (conv['guest_id'],))
+                guest_row = cursor.fetchone()
+                other_user_id = guest_row['user_id'] if guest_row else None
+            else:
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+            cursor.execute(
+                "SELECT id FROM messages WHERE conversation_id = %s AND sender_id = %s AND sender_role = %s AND created_at > DATE_SUB(NOW(), INTERVAL 2 SECOND)",
+                (conversation_id, sender_id, sender_role)
+            )
+            if cursor.fetchone():
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Please wait before sending another message"}), 429
+
+            cursor.execute(
+                "INSERT INTO messages (conversation_id, sender_id, sender_role, message) VALUES (%s, %s, %s, %s)",
+                (conversation_id, sender_id, sender_role, message_text)
+            )
+            msg_id = cursor.lastrowid
+            cursor.execute("UPDATE conversations SET updated_at = NOW() WHERE id = %s", (conversation_id,))
+
+            if other_user_id:
+                notif_msg = "New message received" if sender_role == 'Guest' else "Host replied to your message"
+                notif_title = "New Message" if sender_role == 'Guest' else "Host Reply"
+                _create_notification(cursor, other_user_id, notif_msg, 'chat', notif_title, f'/{"user" if sender_role == "Guest" else "host"}/messages')
+
+            conn.commit()
+            cursor.close(); conn.close()
+            return jsonify({"status": "success", "data": {"message_id": msg_id, "created_at": str(__import__("datetime").datetime.now())}}), 201
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/chat/messages")
+    def chat_messages():
+        body = request.get_json(silent=True) or {}
+        token = body.get('token', '') or request.headers.get('X-Auth-Token', '')
+        if not token:
+            return jsonify({"status": "error", "message": "Auth required"}), 401
+
+        conversation_id = body.get('conversation_id')
+        before_id = body.get('before_id')
+        if not conversation_id:
+            return jsonify({"status": "error", "message": "conversation_id is required"}), 400
+
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute("""
+                SELECT c.id, c.guest_id, c.host_id
+                FROM conversations c WHERE c.id = %s
+            """, (conversation_id,))
+            conv = cursor.fetchone()
+            if not conv:
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Conversation not found"}), 404
+
+            cursor.execute("""
+                SELECT s.user_id, u.role, g.id AS guest_id, h.id AS host_id
+                FROM sessions s JOIN users u ON s.user_id = u.id
+                LEFT JOIN guests g ON g.user_id = u.id
+                LEFT JOIN hosts h ON h.user_id = u.id
+                WHERE s.session_token = %s AND s.expires_at > NOW()
+            """, (token,))
+            user_row = cursor.fetchone()
+            if not user_row:
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Invalid session"}), 401
+
+            is_guest = user_row['role'] == 'Guest' and user_row['guest_id'] == conv['guest_id']
+            is_host = user_row['role'] == 'Host' and user_row['host_id'] == conv['host_id']
+            is_admin = user_row['role'] == 'Admin'
+            if not (is_guest or is_host or is_admin):
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+            if before_id:
+                sql = "SELECT id, conversation_id, sender_id, sender_role, message, is_read, created_at FROM messages WHERE conversation_id = %s AND id < %s ORDER BY id ASC LIMIT 50"
+                params = (conversation_id, before_id)
+            else:
+                sql = "SELECT id, conversation_id, sender_id, sender_role, message, is_read, created_at FROM messages WHERE conversation_id = %s ORDER BY id ASC LIMIT 50"
+                params = (conversation_id,)
+
+            cursor.execute(sql, params)
+            messages = cursor.fetchall()
+            for m in messages:
+                m['created_at'] = str(m['created_at'])
+
+            cursor.close(); conn.close()
+            return jsonify({"status": "success", "data": {"messages": messages, "conversation_id": conversation_id}}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/chat/list")
+    def chat_list():
+        body = request.get_json(silent=True) or {}
+        token = body.get('token', '') or request.headers.get('X-Auth-Token', '')
+        if not token:
+            return jsonify({"status": "error", "message": "Auth required"}), 401
+
+        search = (body.get('search') or '').strip()
+
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute("""
+                SELECT s.user_id, u.role, u.name, g.id AS guest_id, h.id AS host_id
+                FROM sessions s JOIN users u ON s.user_id = u.id
+                LEFT JOIN guests g ON g.user_id = u.id
+                LEFT JOIN hosts h ON h.user_id = u.id
+                WHERE s.session_token = %s AND s.expires_at > NOW()
+            """, (token,))
+            user_row = cursor.fetchone()
+            if not user_row:
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Invalid session"}), 401
+
+            role = user_row['role']
+            conversations = []
+
+            if role == 'Guest':
+                cursor.execute("""
+                    SELECT c.id AS conversation_id, c.booking_id, c.updated_at,
+                           p.title AS property_title, p.image_url AS property_image,
+                           u.name AS other_name,
+                           (SELECT m.message FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1) AS latest_message,
+                           (SELECT m.created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1) AS latest_message_time,
+                           (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.sender_role != 'Guest' AND m.is_read = 0) AS unread_count
+                    FROM conversations c
+                    JOIN bookings b ON b.id = c.booking_id
+                    JOIN properties p ON p.id = b.property_id
+                    JOIN hosts ho ON ho.id = c.host_id
+                    JOIN users u ON u.id = ho.user_id
+                    WHERE c.guest_id = %s
+                    ORDER BY c.updated_at DESC
+                """, (user_row['guest_id'],))
+                conversations = cursor.fetchall()
+
+            elif role == 'Host':
+                sql = """
+                    SELECT c.id AS conversation_id, c.booking_id, c.updated_at,
+                           p.title AS property_title, p.image_url AS property_image,
+                           u.name AS other_name,
+                           (SELECT m.message FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1) AS latest_message,
+                           (SELECT m.created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1) AS latest_message_time,
+                           (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.sender_role != 'Host' AND m.is_read = 0) AS unread_count
+                    FROM conversations c
+                    JOIN bookings b ON b.id = c.booking_id
+                    JOIN properties p ON p.id = b.property_id
+                    JOIN guests g ON g.id = c.guest_id
+                    JOIN users u ON u.id = g.user_id
+                    WHERE c.host_id = %s
+                """
+                params = [user_row['host_id']]
+                if search:
+                    sql += " AND (u.name LIKE %s OR p.title LIKE %s OR CAST(c.booking_id AS CHAR) LIKE %s)"
+                    like = f"%{search}%"
+                    params.extend([like, like, like])
+                sql += " ORDER BY c.updated_at DESC"
+                cursor.execute(sql, params)
+                conversations = cursor.fetchall()
+
+            elif role == 'Admin':
+                sql = """
+                    SELECT c.id AS conversation_id, c.booking_id, c.updated_at,
+                           p.title AS property_title, p.image_url AS property_image,
+                           u_guest.name AS guest_name, u_host.name AS host_name,
+                           CONCAT(u_guest.name, ' & ', u_host.name) AS other_name,
+                           (SELECT m.message FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1) AS latest_message,
+                           (SELECT m.created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1) AS latest_message_time,
+                           0 AS unread_count
+                    FROM conversations c
+                    JOIN bookings b ON b.id = c.booking_id
+                    JOIN properties p ON p.id = b.property_id
+                    JOIN guests g ON g.id = c.guest_id
+                    JOIN users u_guest ON u_guest.id = g.user_id
+                    JOIN hosts ho ON ho.id = c.host_id
+                    JOIN users u_host ON u_host.id = ho.user_id
+                """
+                params = []
+                if search:
+                    sql += " WHERE (u_guest.name LIKE %s OR u_host.name LIKE %s OR p.title LIKE %s OR CAST(c.booking_id AS CHAR) LIKE %s)"
+                    like = f"%{search}%"
+                    params.extend([like, like, like, like])
+                sql += " ORDER BY c.updated_at DESC"
+                cursor.execute(sql, params)
+                conversations = cursor.fetchall()
+
+            for c in conversations:
+                c['updated_at'] = str(c['updated_at'])
+                if c.get('latest_message_time'):
+                    c['latest_message_time'] = str(c['latest_message_time'])
+                c['unread_count'] = int(c['unread_count'] or 0)
+
+            cursor.close(); conn.close()
+            return jsonify({"status": "success", "data": conversations}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/chat/mark-read")
+    def chat_mark_read():
+        body = request.get_json(silent=True) or {}
+        token = body.get('token', '') or request.headers.get('X-Auth-Token', '')
+        if not token:
+            return jsonify({"status": "error", "message": "Auth required"}), 401
+
+        conversation_id = body.get('conversation_id')
+        if not conversation_id:
+            return jsonify({"status": "error", "message": "conversation_id is required"}), 400
+
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute("""
+                SELECT c.id, c.guest_id, c.host_id
+                FROM conversations c WHERE c.id = %s
+            """, (conversation_id,))
+            conv = cursor.fetchone()
+            if not conv:
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Conversation not found"}), 404
+
+            cursor.execute("""
+                SELECT s.user_id, u.role, g.id AS guest_id, h.id AS host_id
+                FROM sessions s JOIN users u ON s.user_id = u.id
+                LEFT JOIN guests g ON g.user_id = u.id
+                LEFT JOIN hosts h ON h.user_id = u.id
+                WHERE s.session_token = %s AND s.expires_at > NOW()
+            """, (token,))
+            user_row = cursor.fetchone()
+            if not user_row:
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Invalid session"}), 401
+
+            is_guest = user_row['role'] == 'Guest' and user_row['guest_id'] == conv['guest_id']
+            is_host = user_row['role'] == 'Host' and user_row['host_id'] == conv['host_id']
+            is_admin = user_row['role'] == 'Admin'
+            if not (is_guest or is_host or is_admin):
+                cursor.close(); conn.close()
+                return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+            if is_guest:
+                cursor.execute("UPDATE messages SET is_read = 1 WHERE conversation_id = %s AND sender_role != 'Guest' AND is_read = 0", (conversation_id,))
+            elif is_host:
+                cursor.execute("UPDATE messages SET is_read = 1 WHERE conversation_id = %s AND sender_role != 'Host' AND is_read = 0", (conversation_id,))
+
+            conn.commit()
+            cursor.close(); conn.close()
+            return jsonify({"status": "success", "message": "Messages marked as read"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/admin/chat")
+    def admin_chat():
+        body = request.get_json(silent=True) or {}
+        _, error = _admin_guard(body)
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            search = (body.get('search') or '').strip()
+            sql = """
+                SELECT c.id AS conversation_id, c.booking_id, c.created_at, c.updated_at,
+                       p.title AS property_title, p.image_url AS property_image,
+                       u_guest.name AS guest_name, u_host.name AS host_name,
+                       (SELECT m.message FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1) AS latest_message,
+                       (SELECT m.created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1) AS latest_message_time,
+                       (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.is_read = 0) AS total_unread
+                FROM conversations c
+                JOIN bookings b ON b.id = c.booking_id
+                JOIN properties p ON p.id = b.property_id
+                JOIN guests g ON g.id = c.guest_id
+                JOIN users u_guest ON u_guest.id = g.user_id
+                JOIN hosts ho ON ho.id = c.host_id
+                JOIN users u_host ON u_host.id = ho.user_id
+            """
+            params = []
+            if search:
+                sql += " WHERE (u_guest.name LIKE %s OR u_host.name LIKE %s OR p.title LIKE %s OR CAST(c.booking_id AS CHAR) LIKE %s)"
+                like = f"%{search}%"
+                params.extend([like, like, like, like])
+            sql += " ORDER BY c.updated_at DESC"
+            cursor.execute(sql, params)
+            conversations = cursor.fetchall()
+            for c in conversations:
+                c['created_at'] = str(c['created_at'])
+                c['updated_at'] = str(c['updated_at'])
+                if c.get('latest_message_time'):
+                    c['latest_message_time'] = str(c['latest_message_time'])
+                c['total_unread'] = int(c['total_unread'] or 0)
+            cursor.close(); conn.close()
+            return jsonify({"status": "success", "data": conversations}), 200
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
 

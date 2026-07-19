@@ -14,6 +14,7 @@ import {
   HiOutlineMapPin,
   HiOutlineHomeModern,
   HiOutlineChatBubbleLeftEllipsis,
+  HiOutlineChatBubbleLeftRight,
 } from 'react-icons/hi2'
 
 const TABS = [
@@ -255,6 +256,15 @@ function BookingCard({ booking: b, onCancel, cancellingId, onSelect }) {
                 className="text-xs font-semibold text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
               >
                 {cancellingId === b.id ? 'Cancelling...' : 'Cancel Booking'}
+              </button>
+            )}
+            {['Confirmed', 'Checked-In', 'Completed'].includes(b.status) && (
+              <button
+                onClick={() => navigate(`/user/messages?booking_id=${b.id}`)}
+                className="text-xs font-semibold text-primary hover:text-primary-hover bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1"
+              >
+                <HiOutlineChatBubbleLeftRight className="w-3.5 h-3.5" />
+                Open Chat
               </button>
             )}
             {(b.status === 'Completed' || b.status === 'Confirmed') && (

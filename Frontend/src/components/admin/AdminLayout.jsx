@@ -9,7 +9,7 @@ import {
   HiOutlineCalendarDays, HiOutlineCurrencyRupee, HiOutlineChartBar,
   HiOutlineDocumentChartBar, HiOutlineStar, HiOutlineExclamationTriangle,
   HiOutlineBell, HiOutlineCog6Tooth, HiOutlineArrowLeftOnRectangle,
-  HiOutlineBars3, HiOutlineXMark, HiOutlineChevronLeft
+  HiOutlineBars3, HiOutlineXMark, HiOutlineChevronLeft, HiOutlineChatBubbleLeftRight
 } from 'react-icons/hi2'
 
 const menuItems = [
@@ -18,6 +18,7 @@ const menuItems = [
   { key: 'hosts', label: 'Hosts', icon: HiOutlineUserCircle, path: '/admin/hosts' },
   { key: 'properties', label: 'Properties', icon: HiOutlineBuildingOffice2, path: '/admin/properties' },
   { key: 'bookings', label: 'Bookings', icon: HiOutlineCalendarDays, path: '/admin/bookings' },
+  { key: 'conversations', label: 'Conversations', icon: HiOutlineChatBubbleLeftRight, path: '/admin/conversations' },
   { key: 'payments', label: 'Payments', icon: HiOutlineCurrencyRupee, path: '/admin/payments' },
   { key: 'analytics', label: 'Analytics', icon: HiOutlineChartBar, path: '/admin/analytics' },
   { key: 'reports', label: 'Reports', icon: HiOutlineDocumentChartBar, path: '/admin/reports' },

@@ -24,6 +24,7 @@ import HostNotificationsPage from './pages/host/HostNotificationsPage'
 import HostProfilePage from './pages/host/HostProfilePage'
 import HostSettingsPage from './pages/host/HostSettingsPage'
 import HostComplaintsPage from './pages/host/HostComplaintsPage'
+import HostChatPage from './pages/host/HostChatPage'
 import UserLayout from './components/user/UserLayout'
 import UserDashboardPage from './pages/user/UserDashboardPage'
 import UserExplorePage from './pages/user/UserExplorePage'
@@ -35,6 +36,7 @@ import UserNotificationsPage from './pages/user/UserNotificationsPage'
 import UserProfilePage from './pages/user/UserProfilePage'
 import UserSettingsPage from './pages/user/UserSettingsPage'
 import UserComplaintsPage from './pages/user/UserComplaintsPage'
+import UserChatPage from './pages/user/UserChatPage'
 import AdminLayout from './components/admin/AdminLayout'
 import AdminDashboardPage from './pages/admin/AdminDashboardPage'
 import AdminUsersPage from './pages/admin/AdminUsersPage'
@@ -49,6 +51,7 @@ import AdminComplaintsPage from './pages/admin/AdminComplaintsPage'
 import AdminNotificationsPage from './pages/admin/AdminNotificationsPage'
 import AdminSettingsPage from './pages/admin/AdminSettingsPage'
 import AdminProfilePage from './pages/admin/AdminProfilePage'
+import AdminChatPage from './pages/admin/AdminChatPage'
 import './index.css'
 
 function App() {
@@ -76,6 +79,7 @@ function App() {
               <Route path="explore" element={<UserExplorePage />} />
               <Route path="wishlist" element={<UserWishlistPage />} />
               <Route path="bookings" element={<UserBookingsPage />} />
+              <Route path="messages" element={<UserChatPage />} />
               <Route path="payments" element={<UserPaymentsPage />} />
               <Route path="reviews" element={<UserReviewsPage />} />
               <Route path="notifications" element={<UserNotificationsPage />} />
@@ -91,6 +95,7 @@ function App() {
               <Route path="properties" element={<HostPropertiesPage />} />
               <Route path="add-property" element={<HostAddPropertyPage />} />
               <Route path="bookings" element={<HostBookingsPage />} />
+              <Route path="messages" element={<HostChatPage />} />
               <Route path="earnings" element={<HostEarningsPage />} />
               <Route path="reports" element={<HostReportsPage />} />
               <Route path="reviews" element={<HostReviewsPage />} />
@@ -108,6 +113,7 @@ function App() {
               <Route path="hosts" element={<AdminHostsPage />} />
               <Route path="properties" element={<AdminPropertiesPage />} />
               <Route path="bookings" element={<AdminBookingsPage />} />
+              <Route path="conversations" element={<AdminChatPage />} />
               <Route path="payments" element={<AdminPaymentsPage />} />
               <Route path="analytics" element={<AdminAnalyticsPage />} />
               <Route path="reports" element={<AdminReportsPage />} />

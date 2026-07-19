@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import hostAPI from '../../api/hostApi'
 import { formatRupees } from '../../utils/currency'
 import BookingDetailsModal from '../../components/BookingDetailsModal'
-import { HiOutlineMagnifyingGlass, HiOutlineCheckCircle, HiOutlineXCircle, HiOutlineUserCircle } from 'react-icons/hi2'
+import { HiOutlineMagnifyingGlass, HiOutlineCheckCircle, HiOutlineXCircle, HiOutlineUserCircle, HiOutlineChatBubbleLeftRight } from 'react-icons/hi2'
 
 export default function HostBookingsPage() {
   const [bookings, setBookings] = useState([])
@@ -11,6 +12,7 @@ export default function HostBookingsPage() {
   const [filter, setFilter] = useState('All')
   const [selectedBooking, setSelectedBooking] = useState(null)
   const [actionLoading, setActionLoading] = useState(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     hostAPI.getRecentBookings()
@@ -136,6 +138,7 @@ export default function HostBookingsPage() {
 
 function BookingRow({ booking: b, statusColors, onAction, actionLoading, onSelect }) {
   const [imgErr, setImgErr] = useState(false)
+  const navigate = useNavigate()
   const nights = b.nights || Math.max(1, Math.ceil((new Date(b.check_out) - new Date(b.check_in)) / (1000*60*60*24)))
 
   const nextActions = {
@@ -187,6 +190,15 @@ function BookingRow({ booking: b, statusColors, onAction, actionLoading, onSelec
 
         {(nextActions[b.status] || []).length > 0 && (
           <div className="flex gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+            {['Confirmed', 'Checked-In'].includes(b.status) && (
+              <button
+                onClick={(e) => { e.stopPropagation(); navigate(`/host/messages?booking_id=${b.id}`) }}
+                className="p-1.5 rounded-lg transition-colors text-primary bg-primary/10 hover:bg-primary/20"
+                title="Message Guest"
+              >
+                <HiOutlineChatBubbleLeftRight className="w-4 h-4" />
+              </button>
+            )}
             {nextActions[b.status].map(({ action, label, icon: Icon, color }) => (
               <button
                 key={action}
