@@ -34,11 +34,20 @@ const adminAPI = {
   getPayments: () =>
     apiClient.post('/admin/payments'),
 
-  getReviews: () =>
-    apiClient.post('/admin/reviews'),
+  getReviews: (filters = {}) =>
+    apiClient.post('/admin/reviews', filters),
 
   deleteReview: (reviewId) =>
     apiClient.post('/admin/review/delete', { review_id: reviewId }),
+
+  hideReview: (reviewId) =>
+    apiClient.post('/admin/review/hide', { review_id: reviewId }),
+
+  restoreReview: (reviewId) =>
+    apiClient.post('/admin/review/restore', { review_id: reviewId }),
+
+  getReviewAnalytics: () =>
+    apiClient.post('/admin/review/analytics'),
 
   getComplaints: () =>
     apiClient.post('/admin/complaints'),

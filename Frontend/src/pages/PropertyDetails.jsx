@@ -24,6 +24,7 @@ const PropertyDetails = () => {
   const [availLoading, setAvailLoading] = useState(true)
   const [isWishlisted, setIsWishlisted] = useState(false)
   const [wishlistLoading, setWishlistLoading] = useState(false)
+  const [reviewSort, setReviewSort] = useState('newest')
 
   useEffect(() => {
     loadPropertyDetails()
@@ -281,17 +282,117 @@ const PropertyDetails = () => {
             </div>
           )}
 
-          <div>
-            <h2 className="text-xl font-bold mb-3 text-main-text">Reviews</h2>
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xl font-bold text-main-text">Reviews</h2>
+              {property.reviews && property.reviews.length > 0 && (
+                <select
+                  value={reviewSort}
+                  onChange={e => setReviewSort(e.target.value)}
+                  className="input-field text-sm py-1 px-2"
+                >
+                  <option value="newest">Newest</option>
+                  <option value="highest">Highest Rated</option>
+                  <option value="lowest">Lowest Rated</option>
+                </select>
+              )}
+            </div>
+
+            {property.category_ratings && Object.keys(property.category_ratings).length > 0 && (
+              <div className="bg-background rounded-xl p-4 mb-4 border border-divider">
+                <p className="text-xs font-medium text-secondary-text mb-3">Category Breakdown</p>
+                <div className="space-y-2">
+                  {[
+                    { key: 'cleanliness', label: 'Cleanliness' },
+                    { key: 'location', label: 'Location' },
+                    { key: 'communication', label: 'Communication' },
+                    { key: 'amenities', label: 'Amenities' },
+                    { key: 'value', label: 'Value for Money' },
+                  ].map(cat => (
+                    property.category_ratings[cat.key] ? (
+                      <div key={cat.key} className="flex items-center gap-3">
+                        <span className="text-xs font-medium text-secondary-text w-32">{cat.label}</span>
+                        <div className="flex-1 h-2 bg-divider rounded-full overflow-hidden">
+                          <div className="h-full bg-teal-400 rounded-full transition-all" style={{ width: `${(property.category_ratings[cat.key] / 5) * 100}%` }} />
+                        </div>
+                        <span className="text-xs font-semibold text-main-text w-8 text-right">{Number(property.category_ratings[cat.key]).toFixed(1)}</span>
+                      </div>
+                    ) : null
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {property.rating_breakdown && Object.keys(property.rating_breakdown).length > 0 && (
+              <div className="bg-background rounded-xl p-4 mb-4 border border-divider">
+                <p className="text-xs font-medium text-secondary-text mb-3">Rating Distribution</p>
+                <div className="space-y-1.5">
+                  {[5, 4, 3, 2, 1].map(star => {
+                    const count = property.rating_breakdown[star] || 0
+                    const pct = (property.reviews?.length || 0) > 0 ? (count / property.reviews.length) * 100 : 0
+                    return (
+                      <div key={star} className="flex items-center gap-2">
+                        <span className="text-xs text-secondary-text w-6">{star}★</span>
+                        <div className="flex-1 h-2 bg-divider rounded-full overflow-hidden">
+                          <div className="h-full bg-yellow-400 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="text-xs text-secondary-text w-6 text-right">{count}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-3">
               {property.reviews && property.reviews.length > 0 ? (
-                property.reviews.map((review, idx) => (
-                  <div key={idx} className="bg-background rounded-xl p-5 border border-divider">
+                [...property.reviews].sort((a, b) => {
+                  switch (reviewSort) {
+                    case 'newest': return new Date(b.created_at) - new Date(a.created_at)
+                    case 'highest': return b.rating - a.rating
+                    case 'lowest': return a.rating - b.rating
+                    default: return 0
+                  }
+                }).map((review, idx) => (
+                  <div key={idx} className="bg-background rounded-xl p-5 border border-divider hover:border-primary/20 transition-colors">
                     <div className="flex justify-between items-start mb-2">
-                      <h4 className="font-semibold text-main-text text-sm">{review.guest_name}</h4>
-                      <span className="text-primary text-sm">★ {review.rating}</span>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-semibold text-main-text text-sm">{review.guest_name}</h4>
+                        {review.verified_stay === 1 && (
+                          <span className="text-[10px] font-medium text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">✓ Verified</span>
+                        )}
+                      </div>
+                      <div className="flex gap-0.5">
+                        {[1, 2, 3, 4, 5].map(s => (
+                          <span key={s} className={`text-xs ${s <= review.rating ? 'text-yellow-400' : 'text-divider'}`}>★</span>
+                        ))}
+                      </div>
                     </div>
+                    {review.title && <p className="text-sm font-semibold text-main-text mb-1">{review.title}</p>}
                     <p className="text-sm text-secondary-text">{review.comment}</p>
+                    {(review.cleanliness_rating || review.location_rating || review.communication_rating || review.amenities_rating || review.value_rating) && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {[
+                          { key: 'cleanliness_rating', label: 'Clean' },
+                          { key: 'location_rating', label: 'Location' },
+                          { key: 'communication_rating', label: 'Comm' },
+                          { key: 'amenities_rating', label: 'Amenities' },
+                          { key: 'value_rating', label: 'Value' },
+                        ].map(cat => (
+                          review[cat.key] ? (
+                            <span key={cat.key} className="text-[11px] text-secondary-text bg-white/80 px-2 py-0.5 rounded-full border border-divider">
+                              {cat.label}: {review[cat.key]}★
+                            </span>
+                          ) : null
+                        ))}
+                      </div>
+                    )}
+                    {review.host_reply && (
+                      <div className="mt-3 p-3 bg-primary/5 rounded-lg border-l-3 border-primary">
+                        <p className="text-xs font-semibold text-primary mb-1">Host Reply</p>
+                        <p className="text-xs text-secondary-text">{review.host_reply}</p>
+                      </div>
+                    )}
                     <p className="text-xs text-secondary-text/70 mt-2">{review.created_at}</p>
                   </div>
                 ))

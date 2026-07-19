@@ -292,6 +292,45 @@ ALTER TABLE notifications ADD COLUMN title VARCHAR(255) DEFAULT '' AFTER type;
 ALTER TABLE notifications ADD COLUMN link_url VARCHAR(500) NULL AFTER title;
 ALTER TABLE notifications ADD INDEX idx_notif_type (type);
 ALTER TABLE notifications ADD INDEX idx_notif_read (is_read);
+
+-- Phase 2.8: Reviews & Ratings Enhancement
+ALTER TABLE reviews ADD COLUMN title VARCHAR(200) DEFAULT '' AFTER comment;
+ALTER TABLE reviews ADD COLUMN booking_id INT NULL AFTER guest_id;
+ALTER TABLE reviews ADD COLUMN cleanliness_rating INT NULL AFTER rating;
+ALTER TABLE reviews ADD COLUMN location_rating INT NULL AFTER cleanliness_rating;
+ALTER TABLE reviews ADD COLUMN communication_rating INT NULL AFTER location_rating;
+ALTER TABLE reviews ADD COLUMN amenities_rating INT NULL AFTER communication_rating;
+ALTER TABLE reviews ADD COLUMN value_rating INT NULL AFTER amenities_rating;
+ALTER TABLE reviews ADD COLUMN is_deleted TINYINT(1) DEFAULT 0 AFTER value_rating;
+ALTER TABLE reviews ADD COLUMN is_hidden TINYINT(1) DEFAULT 0 AFTER is_deleted;
+ALTER TABLE reviews ADD COLUMN updated_at TIMESTAMP NULL AFTER created_at;
+
+-- 20. review_replies Table
+CREATE TABLE IF NOT EXISTS review_replies (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    review_id INT NOT NULL,
+    host_id INT NOT NULL,
+    reply TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_reply (review_id),
+    FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE,
+    FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE,
+    INDEX idx_rr_review (review_id)
+) ENGINE=InnoDB;
+
+-- 21. review_reports Table
+CREATE TABLE IF NOT EXISTS review_reports (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    review_id INT NOT NULL,
+    reported_by INT NOT NULL,
+    reason VARCHAR(500) DEFAULT '',
+    status ENUM('Pending', 'Reviewed', 'Dismissed') DEFAULT 'Pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TIMESTAMP NULL,
+    FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE,
+    INDEX idx_rpt_review (review_id),
+    INDEX idx_rpt_status (status)
+) ENGINE=InnoDB;
 """
 
 
@@ -1071,8 +1110,8 @@ def create_app() -> Flask:
                 SELECT p.id, p.title, p.description, p.image_url, p.property_type,
                        p.address, p.price_per_night, p.max_guests, p.created_at,
                        p.bedrooms, p.bathrooms, p.beds, p.property_size, p.nearby_location,
-                       COALESCE(AVG(r.rating), 0) AS average_rating,
-                       COUNT(DISTINCT r.id) AS review_count
+                       COALESCE(AVG(CASE WHEN r.is_deleted = 0 THEN r.rating END), 0) AS average_rating,
+                       COUNT(DISTINCT CASE WHEN r.is_deleted = 0 THEN r.id END) AS review_count
                 FROM properties p
                 LEFT JOIN reviews r ON r.property_id = p.id
                 WHERE {where_sql}
@@ -1102,8 +1141,8 @@ def create_app() -> Flask:
                 SELECT p.id, p.title, p.description, p.image_url, p.property_type,
                        p.address, p.price_per_night, p.max_guests, p.created_at,
                        p.bedrooms, p.bathrooms, p.beds, p.property_size, p.nearby_location,
-                       COALESCE(AVG(r.rating), 0) AS average_rating,
-                       COUNT(DISTINCT r.id) AS review_count
+                       COALESCE(AVG(CASE WHEN r.is_deleted = 0 THEN r.rating END), 0) AS average_rating,
+                       COUNT(DISTINCT CASE WHEN r.is_deleted = 0 THEN r.id END) AS review_count
                 FROM properties p
                 LEFT JOIN reviews r ON r.property_id = p.id
                 WHERE p.id = %s
@@ -1126,18 +1165,62 @@ def create_app() -> Flask:
 
             cursor.execute(
                 """
-                SELECT u.name AS guest_name, rv.rating, rv.comment, rv.created_at
-                FROM reviews rv
-                JOIN guests g ON g.id = rv.guest_id
+                SELECT ROUND(AVG(r.cleanliness_rating), 1) AS avg_cleanliness,
+                       ROUND(AVG(r.location_rating), 1) AS avg_location,
+                       ROUND(AVG(r.communication_rating), 1) AS avg_communication,
+                       ROUND(AVG(r.amenities_rating), 1) AS avg_amenities,
+                       ROUND(AVG(r.value_rating), 1) AS avg_value
+                FROM reviews r
+                WHERE r.property_id = %s AND r.is_deleted = 0
+                """,
+                (property_id,)
+            )
+            prop['category_ratings'] = cursor.fetchone()
+
+            cursor.execute(
+                """
+                SELECT rating, COUNT(*) AS count FROM reviews
+                WHERE property_id = %s AND is_deleted = 0
+                GROUP BY rating ORDER BY rating DESC
+                """,
+                (property_id,)
+            )
+            prop['rating_breakdown'] = cursor.fetchall()
+
+            sort = request.args.get('sort', 'newest')
+            sort_map = {
+                'newest': 'r.created_at DESC',
+                'highest': 'r.rating DESC',
+                'lowest': 'r.rating ASC',
+            }
+            order = sort_map.get(sort, 'r.created_at DESC')
+
+            cursor.execute(
+                f"""
+                SELECT r.id, u.name AS guest_name, u.profile_picture AS guest_avatar,
+                       r.rating, r.title, r.comment, r.created_at, r.updated_at,
+                       r.cleanliness_rating, r.location_rating, r.communication_rating,
+                       r.amenities_rating, r.value_rating,
+                       CASE WHEN r.booking_id IS NOT NULL THEN 1 ELSE 0 END AS verified_stay,
+                       rr.reply AS host_reply, rr.created_at AS reply_date,
+                       ru.name AS host_name
+                FROM reviews r
+                JOIN guests g ON g.id = r.guest_id
                 JOIN users u ON u.id = g.user_id
-                WHERE rv.property_id = %s
-                ORDER BY rv.created_at DESC LIMIT 10
+                LEFT JOIN review_replies rr ON rr.review_id = r.id
+                LEFT JOIN hosts rh ON rh.id = rr.host_id
+                LEFT JOIN users ru ON ru.id = rh.user_id
+                WHERE r.property_id = %s AND r.is_deleted = 0 AND r.is_hidden = 0
+                ORDER BY {order}
+                LIMIT 50
                 """,
                 (property_id,)
             )
             reviews = cursor.fetchall()
             for rev in reviews:
                 rev['created_at'] = str(rev['created_at'])
+                rev['updated_at'] = str(rev['updated_at']) if rev.get('updated_at') else None
+                rev['reply_date'] = str(rev['reply_date']) if rev.get('reply_date') else None
             prop['reviews'] = reviews
 
             token = request.headers.get('X-Auth-Token', '')
@@ -1691,29 +1774,147 @@ def create_app() -> Flask:
             cursor = conn.cursor(dictionary=True)
             cursor.execute(
                 """
-                SELECT r.id, r.rating, r.comment, r.created_at,
-                       p.title AS property_title,
+                SELECT r.id, r.rating, r.title, r.comment, r.created_at,
+                       r.cleanliness_rating, r.location_rating, r.communication_rating,
+                       r.amenities_rating, r.value_rating, r.is_hidden,
+                       p.title AS property_title, p.id AS property_id,
                        guest_user.name AS guest_name,
-                       guest_user.profile_picture AS guest_avatar
+                       guest_user.profile_picture AS guest_avatar,
+                       CASE WHEN rr.id IS NOT NULL THEN 1 ELSE 0 END AS has_reply,
+                       rr.reply AS host_reply, rr.created_at AS reply_date
                 FROM reviews r
                 JOIN properties p ON p.id = r.property_id
                 JOIN guests g ON g.id = r.guest_id
                 JOIN users guest_user ON guest_user.id = g.user_id
-                WHERE p.host_id = %s
+                LEFT JOIN review_replies rr ON rr.review_id = r.id
+                WHERE p.host_id = %s AND r.is_deleted = 0
                 ORDER BY r.created_at DESC
-                LIMIT 10
                 """,
                 (host_id,)
             )
             reviews = cursor.fetchall()
             for review in reviews:
                 review["created_at"] = str(review["created_at"])
+                review["reply_date"] = str(review["reply_date"]) if review.get("reply_date") else None
+
+            cursor.execute(
+                """
+                SELECT COALESCE(AVG(r.rating), 0) AS avg_rating,
+                       COUNT(r.id) AS total_reviews
+                FROM reviews r
+                JOIN properties p ON p.id = r.property_id
+                WHERE p.host_id = %s AND r.is_deleted = 0
+                """,
+                (host_id,)
+            )
+            agg = cursor.fetchone()
+
+            cursor.execute(
+                """
+                SELECT p.title, ROUND(AVG(r.rating), 1) AS avg_rating, COUNT(r.id) AS review_count
+                FROM reviews r
+                JOIN properties p ON p.id = r.property_id
+                WHERE p.host_id = %s AND r.is_deleted = 0
+                GROUP BY p.id
+                HAVING COUNT(r.id) > 0
+                ORDER BY avg_rating DESC
+                """,
+                (host_id,)
+            )
+            property_ratings = cursor.fetchall()
+
+            best_property = property_ratings[0] if property_ratings else None
+            worst_property = property_ratings[-1] if len(property_ratings) > 1 else None
+
+            cursor.execute(
+                """
+                SELECT ROUND(AVG(r.cleanliness_rating), 1) AS avg_cleanliness,
+                       ROUND(AVG(r.location_rating), 1) AS avg_location,
+                       ROUND(AVG(r.communication_rating), 1) AS avg_communication,
+                       ROUND(AVG(r.amenities_rating), 1) AS avg_amenities,
+                       ROUND(AVG(r.value_rating), 1) AS avg_value
+                FROM reviews r
+                JOIN properties p ON p.id = r.property_id
+                WHERE p.host_id = %s AND r.is_deleted = 0
+                """,
+                (host_id,)
+            )
+            category_avgs = cursor.fetchone()
+
+            cursor.execute(
+                """
+                SELECT DATE_FORMAT(r.created_at, '%Y-%m') AS month_label,
+                       ROUND(AVG(r.rating), 1) AS avg_rating,
+                       COUNT(r.id) AS count
+                FROM reviews r
+                JOIN properties p ON p.id = r.property_id
+                WHERE p.host_id = %s AND r.is_deleted = 0
+                GROUP BY month_label
+                ORDER BY month_label DESC LIMIT 12
+                """,
+                (host_id,)
+            )
+            rating_trend = cursor.fetchall()
+            rating_trend.reverse()
+
+            for row in rating_trend:
+                row["avg_rating"] = float(row["avg_rating"] or 0)
+                row["count"] = int(row["count"] or 0)
+
             cursor.close()
             conn.close()
-            return jsonify({"status": "success", "data": reviews}), 200
+            return jsonify({"status": "success", "data": {
+                "reviews": reviews,
+                "analytics": {
+                    "avg_rating": round(float(agg["avg_rating"] or 0), 1),
+                    "total_reviews": int(agg["total_reviews"] or 0),
+                    "best_property": best_property,
+                    "worst_property": worst_property,
+                    "category_averages": category_avgs,
+                    "rating_trend": rating_trend,
+                }
+            }}), 200
 
         except Exception as e:
             return jsonify({"status": "error", "message": f"Error loading reviews: {str(e)}"}), 500
+
+    @app.post("/api/host/review/reply")
+    def host_review_reply():
+        body = request.get_json(silent=True) or {}
+        host, error = _host_guard(body)
+        if error:
+            return error
+        review_id = body.get('review_id')
+        reply_text = body.get('reply', '').strip()
+        if not review_id or not reply_text:
+            return jsonify({"status": "error", "message": "review_id and reply are required"}), 400
+        if len(reply_text) > 1000:
+            return jsonify({"status": "error", "message": "Reply must be 1000 characters or less"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT r.id FROM reviews r
+                JOIN properties p ON p.id = r.property_id
+                WHERE r.id = %s AND p.host_id = %s AND r.is_deleted = 0
+            """, (review_id, host['host_id']))
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Review not found or not your property"}), 404
+            cursor.execute("SELECT id FROM review_replies WHERE review_id = %s", (review_id,))
+            if cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "You have already replied to this review"}), 409
+            cursor.execute("INSERT INTO review_replies (review_id, host_id, reply) VALUES (%s, %s, %s)",
+                           (review_id, host['host_id'], reply_text))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Reply submitted"}), 201
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
 
     @app.post("/api/host/earnings-chart")
     def host_earnings_chart():
@@ -3871,7 +4072,7 @@ def create_app() -> Flask:
             return jsonify({"status": "error", "message": str(e)}), 500
 
     # ──────────────────────────────────────────────
-    # ADMIN – Reviews
+    # ADMIN – Reviews (Phase 2.8 Enhanced)
     # ──────────────────────────────────────────────
     @app.post("/api/admin/reviews")
     def admin_reviews():
@@ -3879,19 +4080,67 @@ def create_app() -> Flask:
         _, error = _admin_guard(body)
         if error:
             return error
+        search = body.get('search', '').strip()
+        rating_filter = body.get('rating')
+        date_from = body.get('date_from', '')
+        date_to = body.get('date_to', '')
+        report_status = body.get('report_status', '')
+        property_id = body.get('property_id')
+        guest_name = body.get('guest_name', '').strip()
+        host_name = body.get('host_name', '').strip()
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
-            cursor.execute("""
-                SELECT r.id, r.rating, r.comment, r.created_at,
+            conditions = ["r.is_deleted = 0"]
+            params = []
+            if search:
+                conditions.append("(guest_user.name LIKE %s OR p.title LIKE %s OR r.comment LIKE %s OR r.title LIKE %s)")
+                s = f"%{search}%"
+                params.extend([s, s, s, s])
+            if rating_filter:
+                try:
+                    conditions.append("r.rating = %s")
+                    params.append(int(rating_filter))
+                except (ValueError, TypeError):
+                    pass
+            if date_from:
+                conditions.append("r.created_at >= %s")
+                params.append(date_from)
+            if date_to:
+                conditions.append("r.created_at <= %s")
+                params.append(f"{date_to} 23:59:59")
+            if property_id:
+                conditions.append("p.id = %s")
+                params.append(property_id)
+            if guest_name:
+                conditions.append("guest_user.name LIKE %s")
+                params.append(f"%{guest_name}%")
+            if host_name:
+                conditions.append("host_user.name LIKE %s")
+                params.append(f"%{host_name}%")
+            if report_status:
+                if report_status == 'none':
+                    conditions.append("NOT EXISTS (SELECT 1 FROM review_reports rpt WHERE rpt.review_id = r.id)")
+                else:
+                    conditions.append(f"EXISTS (SELECT 1 FROM review_reports rpt WHERE rpt.review_id = r.id AND rpt.status = %s)")
+                    params.append(report_status)
+            where = " AND ".join(conditions)
+            cursor.execute(f"""
+                SELECT r.id, r.rating, r.title, r.comment, r.created_at, r.is_hidden,
                        p.title AS property_title, p.id AS property_id,
-                       guest_user.name AS guest_name, guest_user.email AS guest_email
+                       guest_user.name AS guest_name, guest_user.email AS guest_email,
+                       host_user.name AS host_name,
+                       (SELECT COUNT(*) FROM review_reports rpt WHERE rpt.review_id = r.id AND rpt.status = 'Pending') AS report_count,
+                       (SELECT rpt.status FROM review_reports rpt WHERE rpt.review_id = r.id ORDER BY rpt.id DESC LIMIT 1) AS report_status
                 FROM reviews r
                 JOIN properties p ON p.id = r.property_id
                 JOIN guests g ON g.id = r.guest_id
                 JOIN users guest_user ON guest_user.id = g.user_id
-                ORDER BY r.created_at DESC LIMIT 100
-            """)
+                JOIN hosts h ON h.id = p.host_id
+                JOIN users host_user ON host_user.id = h.user_id
+                WHERE {where}
+                ORDER BY r.created_at DESC LIMIT 200
+            """, params)
             reviews = cursor.fetchall()
             for rev in reviews:
                 rev["created_at"] = str(rev["created_at"])
@@ -3913,7 +4162,7 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM reviews WHERE id = %s", (review_id,))
+            cursor.execute("UPDATE reviews SET is_deleted = 1 WHERE id = %s", (review_id,))
             affected = cursor.rowcount
             conn.commit()
             cursor.close()
@@ -3921,6 +4170,98 @@ def create_app() -> Flask:
             if affected == 0:
                 return jsonify({"status": "error", "message": "Review not found"}), 404
             return jsonify({"status": "success", "message": "Review deleted"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/admin/review/hide")
+    def admin_review_hide():
+        body = request.get_json(silent=True) or {}
+        _, error = _admin_guard(body)
+        if error:
+            return error
+        review_id = body.get('review_id')
+        if not review_id:
+            return jsonify({"status": "error", "message": "review_id is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute("UPDATE reviews SET is_hidden = 1 WHERE id = %s AND is_deleted = 0", (review_id,))
+            affected = cursor.rowcount
+            conn.commit()
+            cursor.close()
+            conn.close()
+            if affected == 0:
+                return jsonify({"status": "error", "message": "Review not found"}), 404
+            return jsonify({"status": "success", "message": "Review hidden"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/admin/review/restore")
+    def admin_review_restore():
+        body = request.get_json(silent=True) or {}
+        _, error = _admin_guard(body)
+        if error:
+            return error
+        review_id = body.get('review_id')
+        if not review_id:
+            return jsonify({"status": "error", "message": "review_id is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute("UPDATE reviews SET is_hidden = 0 WHERE id = %s AND is_deleted = 0", (review_id,))
+            affected = cursor.rowcount
+            conn.commit()
+            cursor.close()
+            conn.close()
+            if affected == 0:
+                return jsonify({"status": "error", "message": "Review not found"}), 404
+            return jsonify({"status": "success", "message": "Review restored"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/admin/review/analytics")
+    def admin_review_analytics():
+        body = request.get_json(silent=True) or {}
+        _, error = _admin_guard(body)
+        if error:
+            return error
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT COALESCE(AVG(rating), 0) AS avg_rating, COUNT(*) AS total FROM reviews WHERE is_deleted = 0")
+            agg = cursor.fetchone()
+            cursor.execute("SELECT COUNT(*) AS count FROM reviews WHERE is_deleted = 0 AND created_at >= DATE_FORMAT(NOW(), '%Y-%m-01')")
+            this_month = cursor.fetchone()
+            cursor.execute("SELECT COUNT(*) AS count FROM reviews WHERE is_deleted = 0 AND rating >= 4")
+            positive = cursor.fetchone()
+            cursor.execute("SELECT COUNT(*) AS count FROM reviews WHERE is_deleted = 0 AND rating <= 2")
+            negative = cursor.fetchone()
+            cursor.execute("""SELECT rating, COUNT(*) AS count FROM reviews WHERE is_deleted = 0
+                GROUP BY rating ORDER BY rating DESC""")
+            distribution = cursor.fetchall()
+            cursor.execute("""SELECT p.title, COUNT(r.id) AS review_count
+                FROM reviews r JOIN properties p ON p.id = r.property_id
+                WHERE r.is_deleted = 0 GROUP BY p.id ORDER BY review_count DESC LIMIT 5""")
+            top_reviewed = cursor.fetchall()
+            cursor.execute("""SELECT u.name AS host_name, ROUND(AVG(r.rating), 1) AS avg_rating, COUNT(r.id) AS review_count
+                FROM reviews r JOIN properties p ON p.id = r.property_id
+                JOIN hosts h ON h.id = p.host_id JOIN users u ON u.id = h.user_id
+                WHERE r.is_deleted = 0 GROUP BY h.id ORDER BY avg_rating DESC LIMIT 5""")
+            top_hosts = cursor.fetchall()
+            for row in top_hosts:
+                row["avg_rating"] = float(row["avg_rating"] or 0)
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": {
+                "platform_rating": round(float(agg["avg_rating"] or 0), 1),
+                "total_reviews": int(agg["total"] or 0),
+                "reviews_this_month": int(this_month["count"] or 0),
+                "positive_reviews": int(positive["count"] or 0),
+                "negative_reviews": int(negative["count"] or 0),
+                "distribution": distribution,
+                "most_reviewed_properties": top_reviewed,
+                "top_rated_hosts": top_hosts,
+            }}), 200
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -4743,7 +5084,7 @@ def create_app() -> Flask:
             return jsonify({"status": "error", "message": str(e)}), 500
 
     # ──────────────────────────────────────────────
-    # GUEST – Reviews
+    # GUEST – Reviews (Phase 2.8 Enhanced)
     # ──────────────────────────────────────────────
     @app.post("/api/guest/reviews")
     def guest_reviews():
@@ -4755,16 +5096,26 @@ def create_app() -> Flask:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
             cursor.execute("""
-                SELECT r.id, r.rating, r.comment, r.created_at,
-                       p.title AS property_title, p.id AS property_id
+                SELECT r.id, r.rating, r.title, r.comment, r.created_at, r.updated_at,
+                       r.cleanliness_rating, r.location_rating, r.communication_rating,
+                       r.amenities_rating, r.value_rating,
+                       p.title AS property_title, p.id AS property_id,
+                       CASE WHEN rr.id IS NOT NULL THEN 1 ELSE 0 END AS has_reply,
+                       rr.reply AS host_reply, rr.created_at AS reply_date,
+                       ru.name AS host_name
                 FROM reviews r
                 JOIN properties p ON p.id = r.property_id
-                WHERE r.guest_id = %s
+                LEFT JOIN review_replies rr ON rr.review_id = r.id
+                LEFT JOIN hosts rh ON rh.id = rr.host_id
+                LEFT JOIN users ru ON ru.id = rh.user_id
+                WHERE r.guest_id = %s AND r.is_deleted = 0
                 ORDER BY r.created_at DESC
             """, (guest['guest_id'],))
             reviews = cursor.fetchall()
             for rev in reviews:
                 rev["created_at"] = str(rev["created_at"])
+                rev["updated_at"] = str(rev["updated_at"]) if rev.get("updated_at") else None
+                rev["reply_date"] = str(rev["reply_date"]) if rev.get("reply_date") else None
             cursor.close()
             conn.close()
             return jsonify({"status": "success", "data": reviews}), 200
@@ -4778,10 +5129,19 @@ def create_app() -> Flask:
         if error:
             return error
         property_id = body.get('property_id')
+        booking_id = body.get('booking_id')
         rating = body.get('rating')
+        title = body.get('title', '').strip()[:200]
         comment = body.get('comment', '').strip()
+        cleanliness = body.get('cleanliness_rating')
+        location = body.get('location_rating')
+        communication = body.get('communication_rating')
+        amenities = body.get('amenities_rating')
+        value = body.get('value_rating')
         if not property_id or not rating:
             return jsonify({"status": "error", "message": "property_id and rating are required"}), 400
+        if not comment:
+            return jsonify({"status": "error", "message": "Review comment is required"}), 400
         try:
             rating = int(rating)
             if rating < 1 or rating > 5:
@@ -4791,23 +5151,133 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT id FROM bookings WHERE guest_id = %s AND property_id = %s AND status IN ('Confirmed','Completed','Checked-In')",
-                           (guest['guest_id'], property_id))
-            if not cursor.fetchone():
+            if booking_id:
+                cursor.execute("SELECT id FROM bookings WHERE id = %s AND guest_id = %s AND property_id = %s AND status = 'Completed'",
+                               (booking_id, guest['guest_id'], property_id))
+            else:
+                cursor.execute("SELECT id FROM bookings WHERE guest_id = %s AND property_id = %s AND status = 'Completed' ORDER BY check_out DESC LIMIT 1",
+                               (guest['guest_id'], property_id))
+            booking = cursor.fetchone()
+            if not booking:
                 cursor.close()
                 conn.close()
-                return jsonify({"status": "error", "message": "You can only review properties you have booked"}), 403
-            cursor.execute("SELECT id FROM reviews WHERE guest_id = %s AND property_id = %s", (guest['guest_id'], property_id))
+                return jsonify({"status": "error", "message": "You can only review properties after your stay is completed"}), 403
+            actual_booking_id = booking['id']
+            cursor.execute("SELECT id FROM reviews WHERE guest_id = %s AND property_id = %s AND is_deleted = 0", (guest['guest_id'], property_id))
             if cursor.fetchone():
                 cursor.close()
                 conn.close()
                 return jsonify({"status": "error", "message": "You have already reviewed this property"}), 409
-            cursor.execute("INSERT INTO reviews (property_id, guest_id, rating, comment) VALUES (%s, %s, %s, %s)",
-                           (property_id, guest['guest_id'], rating, comment or None))
+            def _safe_int(v):
+                if v is None:
+                    return None
+                try:
+                    iv = int(v)
+                    return iv if 1 <= iv <= 5 else None
+                except (ValueError, TypeError):
+                    return None
+            cursor.execute("""INSERT INTO reviews
+                (property_id, guest_id, booking_id, rating, title, comment,
+                 cleanliness_rating, location_rating, communication_rating, amenities_rating, value_rating)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (property_id, guest['guest_id'], actual_booking_id, rating, title, comment,
+                 _safe_int(cleanliness), _safe_int(location), _safe_int(communication),
+                 _safe_int(amenities), _safe_int(value)))
+            conn.commit()
+            review_id = cursor.lastrowid
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "message": "Review submitted", "data": {"review_id": review_id}}), 201
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/guest/reviews/update")
+    def guest_review_update():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        review_id = body.get('review_id')
+        if not review_id:
+            return jsonify({"status": "error", "message": "review_id is required"}), 400
+        rating = body.get('rating')
+        title = body.get('title', '').strip()[:200] if body.get('title') is not None else None
+        comment = body.get('comment', '').strip() if body.get('comment') is not None else None
+        cleanliness = body.get('cleanliness_rating')
+        location = body.get('location_rating')
+        communication = body.get('communication_rating')
+        amenities = body.get('amenities_rating')
+        value = body.get('value_rating')
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT id, created_at FROM reviews WHERE id = %s AND guest_id = %s AND is_deleted = 0",
+                           (review_id, guest['guest_id']))
+            review = cursor.fetchone()
+            if not review:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Review not found"}), 404
+            from datetime import datetime, timedelta
+            created = review['created_at']
+            if isinstance(created, str):
+                created = datetime.strptime(created, '%Y-%m-%d %H:%M:%S')
+            if datetime.now() - created > timedelta(days=30):
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Reviews can only be edited within 30 days of posting"}), 403
+            updates = []
+            params = []
+            if rating is not None:
+                try:
+                    r = int(rating)
+                    if 1 <= r <= 5:
+                        updates.append("rating = %s")
+                        params.append(r)
+                except (ValueError, TypeError):
+                    pass
+            if title is not None:
+                updates.append("title = %s")
+                params.append(title)
+            if comment is not None:
+                if not comment:
+                    return jsonify({"status": "error", "message": "Review comment cannot be empty"}), 400
+                updates.append("comment = %s")
+                params.append(comment)
+            def _safe_int(v):
+                if v is None:
+                    return None
+                try:
+                    iv = int(v)
+                    return iv if 1 <= iv <= 5 else None
+                except (ValueError, TypeError):
+                    return None
+            if cleanliness is not None:
+                updates.append("cleanliness_rating = %s")
+                params.append(_safe_int(cleanliness))
+            if location is not None:
+                updates.append("location_rating = %s")
+                params.append(_safe_int(location))
+            if communication is not None:
+                updates.append("communication_rating = %s")
+                params.append(_safe_int(communication))
+            if amenities is not None:
+                updates.append("amenities_rating = %s")
+                params.append(_safe_int(amenities))
+            if value is not None:
+                updates.append("value_rating = %s")
+                params.append(_safe_int(value))
+            if not updates:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "No fields to update"}), 400
+            updates.append("updated_at = NOW()")
+            params.append(review_id)
+            cursor.execute(f"UPDATE reviews SET {', '.join(updates)} WHERE id = %s", params)
             conn.commit()
             cursor.close()
             conn.close()
-            return jsonify({"status": "success", "message": "Review submitted"}), 201
+            return jsonify({"status": "success", "message": "Review updated"}), 200
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -4823,7 +5293,8 @@ def create_app() -> Flask:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM reviews WHERE id = %s AND guest_id = %s", (review_id, guest['guest_id']))
+            cursor.execute("UPDATE reviews SET is_deleted = 1 WHERE id = %s AND guest_id = %s AND is_deleted = 0",
+                           (review_id, guest['guest_id']))
             affected = cursor.rowcount
             conn.commit()
             cursor.close()
@@ -4831,6 +5302,39 @@ def create_app() -> Flask:
             if affected == 0:
                 return jsonify({"status": "error", "message": "Review not found"}), 404
             return jsonify({"status": "success", "message": "Review deleted"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post("/api/guest/reviews/check-eligibility")
+    def guest_review_check_eligibility():
+        body = request.get_json(silent=True) or {}
+        guest, error = _guest_guard(body)
+        if error:
+            return error
+        property_id = body.get('property_id')
+        if not property_id:
+            return jsonify({"status": "error", "message": "property_id is required"}), 400
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT id FROM reviews WHERE guest_id = %s AND property_id = %s AND is_deleted = 0",
+                           (guest['guest_id'], property_id))
+            has_reviewed = cursor.fetchone() is not None
+            cursor.execute("""SELECT b.id, b.check_out, b.status FROM bookings b
+                WHERE b.guest_id = %s AND b.property_id = %s AND b.status = 'Completed'
+                ORDER BY b.check_out DESC LIMIT 1""",
+                (guest['guest_id'], property_id))
+            booking = cursor.fetchone()
+            eligible = booking is not None and not has_reviewed
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": {
+                "eligible": eligible,
+                "has_reviewed": has_reviewed,
+                "has_completed_booking": booking is not None,
+                "booking_id": booking['id'] if booking else None,
+                "check_out": str(booking['check_out']) if booking else None,
+            }}), 200
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
 

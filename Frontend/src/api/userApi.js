@@ -49,8 +49,14 @@ const userAPI = {
   createReview: (data) =>
     apiClient.post('/guest/reviews/create', data),
 
+  updateReview: (data) =>
+    apiClient.post('/guest/reviews/update', data),
+
   deleteReview: (reviewId) =>
     apiClient.post('/guest/reviews/delete', { review_id: reviewId }),
+
+  checkReviewEligibility: (propertyId) =>
+    apiClient.post('/guest/reviews/check-eligibility', { property_id: propertyId }),
 
   getPayments: () =>
     apiClient.post('/guest/payments'),

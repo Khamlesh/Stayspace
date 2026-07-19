@@ -28,6 +28,9 @@ const hostAPI = {
   getRecentReviews: () =>
     apiClient.post('/host/reviews'),
 
+  replyToReview: (data) =>
+    apiClient.post('/host/review/reply', data),
+
   getMonthlyEarnings: () =>
     apiClient.post('/host/earnings-chart'),
 
