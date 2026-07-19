@@ -221,18 +221,43 @@ export default function BookingDetailsModal({
       .finally(() => setModsLoading(false))
   }, [b?.id])
 
+  const [noConversation, setNoConversation] = useState(false)
+
+  useEffect(() => {
+    if (!showChat || !b?.id) return
+    setChatLoading(true)
+    setNoConversation(false)
+    chatAPI.getList({})
+      .then(res => {
+        if (res.data.status === 'success') {
+          const convs = res.data.data || []
+          const match = convs.find(c => String(c.booking_id) === String(b.id))
+          if (match) {
+            setConversationId(match.conversation_id)
+            setNoConversation(false)
+          } else {
+            setConversationId(null)
+            setNoConversation(true)
+          }
+        }
+      })
+      .catch(() => {
+        setNoConversation(true)
+      })
+      .finally(() => setChatLoading(false))
+  }, [showChat, b?.id])
+
   const fetchConversation = useCallback(async () => {
-    if (!b?.id) return
+    if (!conversationId) return
     try {
-      const res = await chatAPI.getMessages({ booking_id: b.id })
+      const res = await chatAPI.getMessages({ conversation_id: conversationId })
       if (res.data.status === 'success') {
         setChatMessages(res.data.data.messages || [])
-        setConversationId(res.data.data.conversation_id || null)
       }
     } catch (err) {
-      // Conversation may not exist yet
+      // silent
     }
-  }, [b?.id])
+  }, [conversationId])
 
   const scrollToBottom = useCallback(() => {
     setTimeout(() => {
@@ -241,11 +266,11 @@ export default function BookingDetailsModal({
   }, [])
 
   const handleSend = async () => {
-    if (!newMessage.trim() || sending) return
+    if (!newMessage.trim() || sending || !conversationId) return
     setSending(true)
     try {
       await chatAPI.sendMessage({
-        booking_id: b.id,
+        conversation_id: conversationId,
         message: newMessage.trim(),
       })
       setNewMessage('')
@@ -259,17 +284,18 @@ export default function BookingDetailsModal({
   }
 
   useEffect(() => {
-    if (showChat) {
-      setChatLoading(true)
-      fetchConversation().finally(() => setChatLoading(false))
+    if (showChat && conversationId) {
+      fetchConversation().then(() => {
+        chatAPI.markRead({ conversation_id: conversationId }).catch(() => {})
+      })
     }
-  }, [showChat, fetchConversation])
+  }, [showChat, conversationId, fetchConversation])
 
   useEffect(() => {
-    if (!showChat) return
+    if (!showChat || !conversationId) return
     const interval = setInterval(fetchConversation, 5000)
     return () => clearInterval(interval)
-  }, [showChat, fetchConversation])
+  }, [showChat, conversationId, fetchConversation])
 
   useEffect(() => {
     if (showChat && chatMessages.length > 0) scrollToBottom()
@@ -697,6 +723,11 @@ export default function BookingDetailsModal({
                         <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
                         <p className="text-xs text-secondary-text">Loading conversation...</p>
                       </div>
+                    ) : noConversation ? (
+                      <div className="p-8 text-center">
+                        <HiOutlineChatBubbleOvalLeftEllipsis className="w-10 h-10 text-divider mx-auto mb-2" />
+                        <p className="text-sm text-secondary-text">Conversation will become available after booking confirmation.</p>
+                      </div>
                     ) : (
                       <>
                         {/* Chat Header */}
@@ -752,13 +783,13 @@ export default function BookingDetailsModal({
                             value={newMessage}
                             onChange={(e) => setNewMessage(e.target.value.slice(0, 1000))}
                             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                            placeholder="Type a message..."
-                            disabled={sending}
+                            placeholder={conversationId ? "Type a message..." : "No active conversation"}
+                            disabled={sending || !conversationId}
                             className="flex-1 text-sm text-main-text placeholder:text-secondary-text bg-background border border-divider rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all disabled:opacity-50"
                           />
                           <button
                             onClick={handleSend}
-                            disabled={!newMessage.trim() || sending}
+                            disabled={!newMessage.trim() || sending || !conversationId}
                             className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center flex-shrink-0 hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-btn"
                           >
                             {sending ? (
