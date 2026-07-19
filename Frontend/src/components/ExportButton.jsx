@@ -81,6 +81,16 @@ async function exportReportPDF(reportType, reportData, filename) {
   }
 }
 
+async function exportReportCSV(reportType, reportData, filename) {
+  const { exportReportCSV: generateCSV } = await import('../utils/reportExporter')
+  generateCSV(reportType, reportData, filename)
+}
+
+async function exportReportExcel(reportType, reportData, filename) {
+  const { exportReportExcel: generateExcel } = await import('../utils/reportExporter')
+  generateExcel(reportType, reportData, filename)
+}
+
 export default function ExportButton({ data, filename = 'export', title = 'Report', reportType, reportData }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
@@ -116,14 +126,14 @@ export default function ExportButton({ data, filename = 'export', title = 'Repor
             Export as PDF
           </button>
           <button
-            onClick={() => { exportCSV(data, filename); setOpen(false) }}
+            onClick={() => { hasReport ? exportReportCSV(reportType, reportData, filename) : exportCSV(data, filename); setOpen(false) }}
             className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-main-text hover:bg-divider transition-colors"
           >
             <HiOutlineTableCells className="w-4 h-4 text-success" />
             Export as CSV
           </button>
           <button
-            onClick={() => { exportExcel(data, filename); setOpen(false) }}
+            onClick={() => { hasReport ? exportReportExcel(reportType, reportData, filename) : exportExcel(data, filename); setOpen(false) }}
             className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-main-text hover:bg-divider transition-colors"
           >
             <HiOutlineDocument className="w-4 h-4 text-info" />
