@@ -1320,6 +1320,8 @@ def create_app() -> Flask:
         if error:
             return error
 
+        _update_booking_statuses()
+
         host_id = host["host_id"]
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
@@ -1678,6 +1680,8 @@ def create_app() -> Flask:
         if error:
             return error
 
+        _update_booking_statuses()
+
         host_id = host["host_id"]
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
@@ -1989,6 +1993,8 @@ def create_app() -> Flask:
         if error:
             return error
 
+        _update_booking_statuses()
+
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
@@ -2142,6 +2148,8 @@ def create_app() -> Flask:
         _, error = _admin_guard(body)
         if error:
             return error
+
+        _update_booking_statuses()
 
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
@@ -2747,6 +2755,46 @@ def create_app() -> Flask:
             return True
         return _check_blocked_dates(cursor, property_id, check_in, check_out)
 
+    def _update_booking_statuses():
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor(dictionary=True)
+            today = __import__('datetime').date.today()
+
+            cursor.execute(
+                "SELECT id, check_in, check_out FROM bookings WHERE status = 'Confirmed' AND check_in <= %s",
+                (today,)
+            )
+            checked_in_bookings = cursor.fetchall()
+            if checked_in_bookings:
+                cursor.execute(
+                    "UPDATE bookings SET status = 'Checked-In' WHERE status = 'Confirmed' AND check_in <= %s",
+                    (today,)
+                )
+                for b in checked_in_bookings:
+                    _log_timeline_event(cursor, b['id'], 'checkin', 'Automatic check-in (date reached)',
+                                        'System', 'System', {'old_status': 'Confirmed', 'new_status': 'Checked-In'})
+
+            cursor.execute(
+                "SELECT id, check_in, check_out FROM bookings WHERE status = 'Checked-In' AND check_out < %s",
+                (today,)
+            )
+            completed_bookings = cursor.fetchall()
+            if completed_bookings:
+                cursor.execute(
+                    "UPDATE bookings SET status = 'Completed' WHERE status = 'Checked-In' AND check_out < %s",
+                    (today,)
+                )
+                for b in completed_bookings:
+                    _log_timeline_event(cursor, b['id'], 'complete', 'Automatic completion (checkout date passed)',
+                                        'System', 'System', {'old_status': 'Checked-In', 'new_status': 'Completed'})
+
+            conn.commit()
+            cursor.close()
+            conn.close()
+        except Exception:
+            pass
+
     # ──────────────────────────────────────────────
     # BOOKING SYSTEM – Create Booking
     # ──────────────────────────────────────────────
@@ -2907,6 +2955,8 @@ def create_app() -> Flask:
         guest, error = _guest_guard(body)
         if error:
             return error
+
+        _update_booking_statuses()
 
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
@@ -3757,6 +3807,7 @@ def create_app() -> Flask:
         _, error = _admin_guard(body)
         if error:
             return error
+        _update_booking_statuses()
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
@@ -4913,6 +4964,7 @@ def create_app() -> Flask:
         guest, error = _guest_guard(body)
         if error:
             return error
+        _update_booking_statuses()
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor(dictionary=True)
