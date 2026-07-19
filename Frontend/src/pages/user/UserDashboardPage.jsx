@@ -92,7 +92,7 @@ function ChartTooltip({ active, payload, label }) {
       <p className="text-xs font-semibold text-main-text mb-1">{label}</p>
       {payload.map((p, i) => (
         <p key={i} className="text-xs" style={{ color: p.color }}>
-          {p.name}: {typeof p.value === 'number' && p.name?.toLowerCase().includes('spending')
+          {p.name}: {typeof p.value === 'number' && (p.name?.toLowerCase().includes('spending') || p.name?.toLowerCase().includes('revenue'))
             ? formatRupees(p.value) : p.value}
         </p>
       ))}
@@ -151,8 +151,39 @@ export default function UserDashboardPage() {
     })
   }, [bookings, filter])
 
+  const filteredStats = useMemo(() => {
+    if (!stats) return null
+    if (!filter.start) return stats
+    const fb = filteredBookings
+    const totalBookings = fb.length
+    const completedBookings = fb.filter(b => b.status === 'Completed').length
+    const cancelledBookings = fb.filter(b => b.status === 'Cancelled').length
+    const upcomingBookings = fb.filter(b => (b.status === 'Pending' || b.status === 'Confirmed') && b.check_in >= new Date().toISOString().split('T')[0]).length
+    const totalSpent = fb.reduce((sum, b) => sum + Number(b.total_price || 0), 0)
+    const avgCost = totalBookings > 0 ? Math.round(totalSpent / totalBookings) : 0
+
+    const destMap = {}
+    fb.filter(b => b.status !== 'Cancelled').forEach(b => {
+      const dest = b.property_title || 'Unknown'
+      destMap[dest] = (destMap[dest] || 0) + 1
+    })
+    const topDest = Object.entries(destMap).sort((a, b) => b[1] - a[1])[0]
+
+    return {
+      ...stats,
+      total_bookings: totalBookings,
+      completed_bookings: completedBookings,
+      cancelled_bookings: cancelledBookings,
+      upcoming_bookings: upcomingBookings,
+      total_spent: totalSpent,
+      average_booking_cost: avgCost,
+      favourite_destination: topDest ? topDest[0] : stats.favourite_destination,
+    }
+  }, [stats, filteredBookings, filter])
+
   const monthlySpending = stats?.monthly_spending || []
   const bookingStatusDist = stats?.booking_status_distribution || []
+
   const bookingChartData = useMemo(() => {
     const map = {}
     filteredBookings.forEach(b => {
@@ -167,6 +198,50 @@ export default function UserDashboardPage() {
     return Object.values(map).sort((a, b) => a.month.localeCompare(b.month)).slice(-6)
   }, [filteredBookings])
 
+  const filteredMonthlySpending = useMemo(() => {
+    if (!filter.start) return monthlySpending
+    const map = {}
+    filteredBookings.forEach(b => {
+      const m = (b.check_in || '').slice(0, 7)
+      if (!m) return
+      if (!map[m]) map[m] = { month: m, spending: 0, bookings: 0 }
+      if (b.status === 'Completed' || b.status === 'Confirmed') {
+        map[m].spending += Number(b.total_price || 0)
+      }
+      map[m].bookings++
+    })
+    return Object.values(map).sort((a, b) => a.month.localeCompare(b.month)).slice(-6)
+  }, [filteredBookings, filter, monthlySpending])
+
+  const filteredBookingStatusDist = useMemo(() => {
+    if (!filter.start) return bookingStatusDist
+    const map = {}
+    filteredBookings.forEach(b => {
+      map[b.status] = (map[b.status] || 0) + 1
+    })
+    return Object.entries(map).map(([status, count]) => ({ status, count }))
+  }, [filteredBookings, filter, bookingStatusDist])
+
+  const favouriteDestinations = useMemo(() => {
+    const map = {}
+    filteredBookings.filter(b => b.status !== 'Cancelled').forEach(b => {
+      const dest = b.property_title || 'Unknown'
+      map[dest] = (map[dest] || 0) + 1
+    })
+    return Object.entries(map)
+      .map(([name, trips]) => ({ name, trips }))
+      .sort((a, b) => b.trips - a.trips)
+      .slice(0, 6)
+  }, [filteredBookings])
+
+  const exportData = filteredBookings.map(b => ({
+    property: b.property_title,
+    check_in: b.check_in,
+    check_out: b.check_out,
+    status: b.status,
+    amount: b.total_price
+  }))
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -178,7 +253,7 @@ export default function UserDashboardPage() {
           <button onClick={loadData} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-secondary-text bg-white border border-divider rounded-lg hover:bg-divider transition-colors">
             <HiOutlineArrowPath className="w-3.5 h-3.5" /> Refresh
           </button>
-          <ExportButton data={filteredBookings.map(b => ({ property: b.property_title, check_in: b.check_in, check_out: b.check_out, status: b.status, amount: b.total_price }))} filename="my-bookings" title="My Bookings Report" />
+          <ExportButton data={exportData} filename="my-bookings" title="My Bookings Report" />
         </div>
       </div>
 
@@ -189,10 +264,10 @@ export default function UserDashboardPage() {
       <DashboardFilter value={filter} onChange={setFilter} />
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <StatCard icon={HiOutlineCalendarDays} label="Total Trips" value={stats?.total_bookings ?? bookings.length} loading={loading} color="primary" />
-        <StatCard icon={HiOutlineCheckCircle} label="Upcoming" value={stats?.upcoming_bookings ?? 0} loading={loading} color="info" />
-        <StatCard icon={HiOutlineCheckCircle} label="Completed" value={stats?.completed_bookings ?? 0} loading={loading} color="success" />
-        <StatCard icon={HiOutlineClock} label="Cancelled" value={stats?.cancelled_bookings ?? 0} loading={loading} color="danger" />
+        <StatCard icon={HiOutlineCalendarDays} label="Total Trips" value={filteredStats?.total_bookings ?? bookings.length} loading={loading} color="primary" />
+        <StatCard icon={HiOutlineCheckCircle} label="Upcoming" value={filteredStats?.upcoming_bookings ?? 0} loading={loading} color="info" />
+        <StatCard icon={HiOutlineCheckCircle} label="Completed" value={filteredStats?.completed_bookings ?? 0} loading={loading} color="success" />
+        <StatCard icon={HiOutlineClock} label="Cancelled" value={filteredStats?.cancelled_bookings ?? 0} loading={loading} color="danger" />
         <StatCard icon={HiOutlineHeart} label="Wishlist" value={stats?.wishlist_count ?? 0} loading={loading} color="primary" />
         <StatCard icon={HiOutlineStar} label="Reviews" value={stats?.reviews_count ?? 0} loading={loading} color="warning" />
       </div>
@@ -200,15 +275,15 @@ export default function UserDashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="dashboard-card">
           <p className="text-xs text-secondary-text font-medium mb-1">Total Spending</p>
-          <p className="text-xl font-bold text-main-text">{stats?.total_spent != null ? formatRupees(stats.total_spent) : formatRupees(0)}</p>
+          <p className="text-xl font-bold text-main-text">{filteredStats?.total_spent != null ? formatRupees(filteredStats.total_spent) : formatRupees(0)}</p>
         </div>
         <div className="dashboard-card">
           <p className="text-xs text-secondary-text font-medium mb-1">Avg. Booking Cost</p>
-          <p className="text-xl font-bold text-main-text">{stats?.average_booking_cost != null ? formatRupees(stats.average_booking_cost) : formatRupees(0)}</p>
+          <p className="text-xl font-bold text-main-text">{filteredStats?.average_booking_cost != null ? formatRupees(filteredStats.average_booking_cost) : formatRupees(0)}</p>
         </div>
         <div className="dashboard-card">
           <p className="text-xs text-secondary-text font-medium mb-1">Favourite Destination</p>
-          <p className="text-xl font-bold text-main-text truncate">{stats?.favourite_destination || 'No trips yet'}</p>
+          <p className="text-xl font-bold text-main-text truncate">{filteredStats?.favourite_destination || 'No trips yet'}</p>
         </div>
       </div>
 
@@ -217,9 +292,9 @@ export default function UserDashboardPage() {
           <h2 className="text-lg font-semibold text-main-text mb-4">Monthly Spending</h2>
           {loading ? (
             <div className="h-64 animate-pulse bg-divider rounded-xl" />
-          ) : monthlySpending.length > 0 ? (
+          ) : filteredMonthlySpending.length > 0 ? (
             <ResponsiveContainer width="100%" height={260}>
-              <AreaChart data={monthlySpending}>
+              <AreaChart data={filteredMonthlySpending}>
                 <defs>
                   <linearGradient id="colorSpending" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#F43F5E" stopOpacity={0.15} />
@@ -258,21 +333,39 @@ export default function UserDashboardPage() {
         </div>
       </div>
 
-      {bookingStatusDist.length > 0 && (
-        <div className="dashboard-card">
-          <h2 className="text-lg font-semibold text-main-text mb-4">Booking Status</h2>
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart>
-              <Pie data={bookingStatusDist} cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={4} dataKey="count" nameKey="status"
-                label={({ status, percent }) => `${status} ${(percent * 100).toFixed(0)}%`}>
-                {bookingStatusDist.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-              </Pie>
-              <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }} />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {favouriteDestinations.length > 0 && (
+          <div className="dashboard-card">
+            <h2 className="text-lg font-semibold text-main-text mb-4">Favourite Destinations</h2>
+            <ResponsiveContainer width="100%" height={260}>
+              <PieChart>
+                <Pie data={favouriteDestinations} cx="50%" cy="50%" innerRadius={50} outerRadius={95} paddingAngle={4} dataKey="trips" nameKey="name"
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                  {favouriteDestinations.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {filteredBookingStatusDist.length > 0 && (
+          <div className="dashboard-card">
+            <h2 className="text-lg font-semibold text-main-text mb-4">Booking Status</h2>
+            <ResponsiveContainer width="100%" height={260}>
+              <PieChart>
+                <Pie data={filteredBookingStatusDist} cx="50%" cy="50%" innerRadius={50} outerRadius={95} paddingAngle={4} dataKey="count" nameKey="status"
+                  label={({ status, percent }) => `${status} ${(percent * 100).toFixed(0)}%`}>
+                  {filteredBookingStatusDist.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <button onClick={() => navigate('/user/explore')} className="dashboard-card dashboard-card-hover text-left group">

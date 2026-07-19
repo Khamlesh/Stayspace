@@ -7,7 +7,9 @@ import {
   HiOutlineUserGroup, HiOutlineUserCircle, HiOutlineClock,
   HiOutlineBuildingOffice2, HiOutlineCalendarDays, HiOutlineCheckCircle,
   HiOutlineCurrencyRupee, HiOutlineStar, HiOutlineArrowUpRight,
-  HiOutlineArrowDownRight, HiOutlineExclamationTriangle, HiOutlineArrowPath
+  HiOutlineArrowDownRight, HiOutlineExclamationTriangle, HiOutlineArrowPath,
+  HiOutlineChatBubbleLeftEllipsis, HiOutlineBellAlert, HiOutlineDocumentText,
+  HiOutlineHomeModern
 } from 'react-icons/hi2'
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -125,8 +127,8 @@ function EmptyState({ message }) {
 
 function SkeletonGrid() {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      {Array.from({ length: 8 }).map((_, i) => (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      {Array.from({ length: 12 }).map((_, i) => (
         <div key={i} className="dashboard-card animate-pulse">
           <div className="h-10 w-10 bg-divider rounded-xl mb-3" />
           <div className="h-4 w-24 bg-divider rounded mb-2" />
@@ -142,6 +144,7 @@ export default function AdminDashboardPage() {
   const [bookings, setBookings] = useState([])
   const [hosts, setHosts] = useState([])
   const [complaints, setComplaints] = useState([])
+  const [analyticsData, setAnalyticsData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
   const [filter, setFilter] = useState({ key: 'all', start: null, end: null })
@@ -149,16 +152,18 @@ export default function AdminDashboardPage() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [statsRes, bookingsRes, hostsRes, complaintsRes] = await Promise.allSettled([
+      const [statsRes, bookingsRes, hostsRes, complaintsRes, analyticsRes] = await Promise.allSettled([
         adminAPI.getStats(),
         adminAPI.getBookings(),
         adminAPI.getHosts(),
-        adminAPI.getComplaints()
+        adminAPI.getComplaints(),
+        adminAPI.getAnalytics()
       ])
       if (statsRes.status === 'fulfilled' && statsRes.value.data.status === 'success') setStats(statsRes.value.data.data)
       if (bookingsRes.status === 'fulfilled' && bookingsRes.value.data.status === 'success') setBookings(bookingsRes.value.data.data || [])
       if (hostsRes.status === 'fulfilled' && hostsRes.value.data.status === 'success') setHosts(hostsRes.value.data.data || [])
       if (complaintsRes.status === 'fulfilled' && complaintsRes.value.data.status === 'success') setComplaints(complaintsRes.value.data.data || [])
+      if (analyticsRes.status === 'fulfilled' && analyticsRes.value.data.status === 'success') setAnalyticsData(analyticsRes.value.data.data)
     } catch (e) {
       console.error('Admin dashboard load error:', e)
     } finally {
@@ -169,15 +174,33 @@ export default function AdminDashboardPage() {
   useEffect(() => { loadData() }, [])
 
   const pendingHosts = useMemo(() => hosts.filter(h => h.status === 'pending'), [hosts])
-  const recentBookings = useMemo(() => {
+  const filteredBookings = useMemo(() => {
     let data = bookings
     if (filter.start) {
       data = data.filter(b => b.check_in >= filter.start && (!filter.end || b.check_in <= filter.end))
     }
-    return data.slice(0, 5)
+    return data
   }, [bookings, filter])
+  const recentBookings = useMemo(() => filteredBookings.slice(0, 5), [filteredBookings])
   const openComplaints = useMemo(() => complaints.filter(c => c.status !== 'Resolved' && c.status !== 'Closed').length, [complaints])
   const resolvedComplaints = useMemo(() => complaints.filter(c => c.status === 'Resolved' || c.status === 'Closed').length, [complaints])
+
+  const filteredStats = useMemo(() => {
+    if (!stats) return null
+    if (!filter.start) return stats
+    const fb = filteredBookings
+    const completedBookings = fb.filter(b => b.status === 'Completed').length
+    const cancelledBookings = fb.filter(b => b.status === 'Cancelled').length
+    const activeBookings = fb.filter(b => !['Cancelled', 'Completed'].includes(b.status)).length
+    const filteredRevenue = fb.reduce((sum, b) => sum + Number(b.total_price || 0), 0)
+    return {
+      ...stats,
+      total_bookings: fb.length,
+      completed_bookings: completedBookings,
+      cancelled_bookings: cancelledBookings,
+      active_bookings: activeBookings,
+    }
+  }, [stats, filteredBookings, filter])
 
   const revenueChartData = stats?.monthly_revenue_chart || []
   const userGrowthData = stats?.user_growth || []
@@ -185,15 +208,69 @@ export default function AdminDashboardPage() {
   const propertyTypeDist = stats?.property_type_distribution || []
   const bookingStatusDist = stats?.booking_status_distribution || []
   const reviewAnalytics = stats?.review_analytics || []
+  const bookingTrends = stats?.booking_trends || []
+  const occupancyData = stats?.occupancy_data || []
   const totalBookings = stats?.total_bookings || 1
   const cancellationRate = stats?.cancelled_bookings ? ((stats.cancelled_bookings / totalBookings) * 100).toFixed(1) : 0
+
+  const filteredBookingStatusDist = useMemo(() => {
+    if (!filter.start) return bookingStatusDist
+    const map = {}
+    filteredBookings.forEach(b => {
+      map[b.status] = (map[b.status] || 0) + 1
+    })
+    return Object.entries(map).map(([status, count]) => ({ status, count }))
+  }, [filteredBookings, filter, bookingStatusDist])
+
+  const filteredBookingTrends = useMemo(() => {
+    if (!filter.start) return bookingTrends
+    const map = {}
+    filteredBookings.forEach(b => {
+      const m = (b.check_in || '').slice(0, 7)
+      if (!m) return
+      map[m] = (map[m] || 0) + 1
+    })
+    return Object.entries(map).map(([month, count]) => ({ month, count })).sort((a, b) => a.month.localeCompare(b.month)).slice(-6)
+  }, [filteredBookings, filter, bookingTrends])
+
+  const topProperties = useMemo(() => {
+    if (analyticsData?.top_properties) return analyticsData.top_properties.slice(0, 5)
+    const propMap = {}
+    filteredBookings.forEach(b => {
+      const title = b.property_title || 'Unknown'
+      if (!propMap[title]) propMap[title] = { title, address: b.property_address || '-', bookings: 0, revenue: 0 }
+      propMap[title].bookings++
+      propMap[title].revenue += Number(b.total_price || 0)
+    })
+    return Object.values(propMap).sort((a, b) => b.revenue - a.revenue).slice(0, 5)
+  }, [analyticsData, filteredBookings])
+
+  const topCities = useMemo(() => {
+    const cityMap = {}
+    filteredBookings.forEach(b => {
+      const addr = b.property_address || 'Unknown'
+      const parts = addr.split(',')
+      const city = parts.length > 1 ? parts[parts.length - 1].trim() : addr
+      if (!cityMap[city]) cityMap[city] = { city, bookings: 0, revenue: 0 }
+      cityMap[city].bookings++
+      cityMap[city].revenue += Number(b.total_price || 0)
+    })
+    return Object.values(cityMap).sort((a, b) => b.bookings - a.bookings).slice(0, 6)
+  }, [filteredBookings])
 
   const complaintData = [
     { name: 'Open', value: openComplaints },
     { name: 'Resolved', value: resolvedComplaints },
   ].filter(d => d.value > 0)
 
-  const exportData = bookings.map(b => ({
+  const platformGrowth = useMemo(() => {
+    if (!stats) return '0%'
+    const users = stats.users_this_month || 0
+    const total = stats.total_users || 1
+    return `${Math.round((users / total) * 100)}%`
+  }, [stats])
+
+  const exportData = filteredBookings.map(b => ({
     guest: b.guest_name, property: b.property_title, host: b.host_name,
     check_in: b.check_in, status: b.status, amount: b.total_price
   }))
@@ -236,15 +313,19 @@ export default function AdminDashboardPage() {
       {loading ? (
         <SkeletonGrid />
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <StatCard icon={HiOutlineUserGroup} label="Total Users" value={stats?.total_users ?? 0} loading={loading} />
-          <StatCard icon={HiOutlineUserCircle} label="Approved Hosts" value={stats?.active_hosts ?? 0} loading={loading} />
-          <StatCard icon={HiOutlineCheckCircle} label="Completed" value={stats?.completed_bookings ?? 0} loading={loading} />
+          <StatCard icon={HiOutlineUserCircle} label="Guests" value={stats?.total_guests ?? 0} loading={loading} />
+          <StatCard icon={HiOutlineHomeModern} label="Hosts" value={stats?.total_hosts ?? 0} loading={loading} />
           <StatCard icon={HiOutlineBuildingOffice2} label="Properties" value={stats?.total_properties ?? 0} loading={loading} />
-          <StatCard icon={HiOutlineCalendarDays} label="Total Bookings" value={stats?.total_bookings ?? 0} loading={loading} />
-          <StatCard icon={HiOutlineClock} label="Cancelled" value={stats?.cancelled_bookings ?? 0} loading={loading} />
           <StatCard icon={HiOutlineCurrencyRupee} label="Platform Revenue" value={formatRupees(stats?.total_revenue ?? 0)} loading={loading} />
+          <StatCard icon={HiOutlineCalendarDays} label="Active Bookings" value={filteredStats?.active_bookings ?? stats?.active_bookings ?? 0} loading={loading} />
+          <StatCard icon={HiOutlineCheckCircle} label="Completed" value={filteredStats?.completed_bookings ?? stats?.completed_bookings ?? 0} loading={loading} />
+          <StatCard icon={HiOutlineClock} label="Cancelled" value={filteredStats?.cancelled_bookings ?? stats?.cancelled_bookings ?? 0} loading={loading} />
+          <StatCard icon={HiOutlineChatBubbleLeftEllipsis} label="Complaints" value={stats?.total_complaints ?? 0} loading={loading} />
           <StatCard icon={HiOutlineStar} label="Total Reviews" value={stats?.total_reviews ?? 0} loading={loading} />
+          <StatCard icon={HiOutlineArrowUpRight} label="Platform Growth" value={platformGrowth} loading={loading} />
+          <StatCard icon={HiOutlineBellAlert} label="Pending Hosts" value={stats?.pending_hosts ?? 0} highlight loading={loading} />
         </div>
       )}
 
@@ -262,8 +343,8 @@ export default function AdminDashboardPage() {
           <p className="text-xl font-bold text-warning">{openComplaints}</p>
         </div>
         <div className="dashboard-card">
-          <p className="text-xs text-secondary-text font-medium mb-1">Pending Hosts</p>
-          <p className="text-xl font-bold text-info">{stats?.pending_hosts ?? 0}</p>
+          <p className="text-xs text-secondary-text font-medium mb-1">Reviews</p>
+          <p className="text-xl font-bold text-info">{stats?.total_reviews ?? 0}</p>
         </div>
       </div>
 
@@ -284,7 +365,7 @@ export default function AdminDashboardPage() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                <XAxis dataKey="month_label" tick={{ fontSize: 12, fill: '#6B7280' }} />
+                <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#6B7280' }} />
                 <YAxis tick={{ fontSize: 12, fill: '#6B7280' }} />
                 <Tooltip content={<ChartTooltip />} />
                 <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#F43F5E" strokeWidth={2.5} fill="url(#colorRevenue)" />
@@ -366,6 +447,25 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
+      {filteredBookingTrends.length > 0 && (
+        <div className="dashboard-card">
+          <h2 className="text-lg font-semibold text-main-text mb-4">Bookings Trend</h2>
+          {loading ? (
+            <div className="h-64 animate-pulse bg-divider rounded-xl" />
+          ) : (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={filteredBookingTrends}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#6B7280' }} />
+                <YAxis tick={{ fontSize: 12, fill: '#6B7280' }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="count" name="Bookings" fill="#3B82F6" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="dashboard-card">
           <h2 className="text-lg font-semibold text-main-text mb-4">Property Types</h2>
@@ -390,15 +490,15 @@ export default function AdminDashboardPage() {
           <h2 className="text-lg font-semibold text-main-text mb-4">Booking Status</h2>
           {loading ? (
             <div className="h-64 animate-pulse bg-divider rounded-xl" />
-          ) : bookingStatusDist.length > 0 ? (
+          ) : filteredBookingStatusDist.length > 0 ? (
             <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={bookingStatusDist}>
+              <BarChart data={filteredBookingStatusDist}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
                 <XAxis dataKey="status" tick={{ fontSize: 12, fill: '#6B7280' }} />
                 <YAxis tick={{ fontSize: 12, fill: '#6B7280' }} />
                 <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }} />
                 <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                  {bookingStatusDist.map((entry, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  {filteredBookingStatusDist.map((entry, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -429,6 +529,51 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {topProperties.length > 0 && (
+          <div className="dashboard-card">
+            <h2 className="text-lg font-semibold text-main-text mb-4">Top Properties</h2>
+            <div className="overflow-x-auto -mx-1">
+              <table className="w-full min-w-[400px]">
+                <thead>
+                  <tr className="border-b border-divider">
+                    <th className="text-left text-xs font-semibold text-secondary-text py-2 px-4">Property</th>
+                    <th className="text-left text-xs font-semibold text-secondary-text py-2 px-4">Bookings</th>
+                    <th className="text-left text-xs font-semibold text-secondary-text py-2 px-4">Rating</th>
+                    <th className="text-left text-xs font-semibold text-secondary-text py-2 px-4">Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topProperties.map((p, i) => (
+                    <tr key={i} className="border-b border-divider last:border-0 hover:bg-background/50 transition-colors">
+                      <td className="py-3 px-4 text-sm font-medium text-main-text">{p.title}</td>
+                      <td className="py-3 px-4 text-sm text-secondary-text">{p.bookings || p.total_bookings || 0}</td>
+                      <td className="py-3 px-4 text-sm text-warning">{p.avg_rating > 0 ? `★ ${p.avg_rating}` : '-'}</td>
+                      <td className="py-3 px-4 text-sm font-semibold text-main-text">{formatRupees(p.revenue || 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {topCities.length > 0 && (
+          <div className="dashboard-card">
+            <h2 className="text-lg font-semibold text-main-text mb-4">Top Cities</h2>
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={topCities}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                <XAxis dataKey="city" tick={{ fontSize: 11, fill: '#6B7280' }} />
+                <YAxis tick={{ fontSize: 12, fill: '#6B7280' }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="bookings" name="Bookings" fill="#F43F5E" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
       {complaintData.length > 0 && (
         <div className="dashboard-card">
           <h2 className="text-lg font-semibold text-main-text mb-4">Complaint Overview</h2>
@@ -451,7 +596,7 @@ export default function AdminDashboardPage() {
         <div className="dashboard-card">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-main-text">Recent Bookings</h2>
-            <span className="text-xs text-secondary-text bg-divider px-2.5 py-1 rounded-full">{bookings.length} total</span>
+            <span className="text-xs text-secondary-text bg-divider px-2.5 py-1 rounded-full">{filteredBookings.length} total</span>
           </div>
           {loading ? (
             <div className="space-y-2">

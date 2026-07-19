@@ -1,12 +1,14 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import hostAPI from '../../api/hostApi'
+import { formatRupees } from '../../utils/currency'
 import DashboardFilter from '../../components/DashboardFilter'
 import ExportButton from '../../components/ExportButton'
 import {
   HiOutlineBuildingOffice2, HiOutlineCalendarDays,
   HiOutlineCurrencyRupee, HiOutlineStar, HiOutlineArrowUpRight,
-  HiOutlineArrowDownRight, HiOutlineClock, HiOutlineArrowPath
+  HiOutlineArrowDownRight, HiOutlineClock, HiOutlineArrowPath,
+  HiOutlineUserGroup, HiOutlineHomeModern, HiOutlineChartBar
 } from 'react-icons/hi2'
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -101,7 +103,7 @@ function ChartTooltip({ active, payload, label }) {
       {payload.map((p, i) => (
         <p key={i} className="text-xs" style={{ color: p.color }}>
           {p.name}: {p.name?.toLowerCase().includes('earnings') || p.name?.toLowerCase().includes('revenue')
-            ? `₹${Number(p.value).toLocaleString('en-IN')}` : p.value}
+            ? `₹${Number(p.value).toLocaleString('en-IN')}` : `${p.value}${p.name?.toLowerCase().includes('occupancy') ? '%' : ''}`}
         </p>
       ))}
     </div>
@@ -155,13 +157,71 @@ export default function HostDashboardPage() {
 
   const bookingStatusDist = stats?.booking_status_distribution || []
   const propertyPerformance = stats?.property_performance || []
-  const recentBookings = useMemo(() => {
+
+  const filteredBookings = useMemo(() => {
     let data = bookings
     if (filter.start) {
       data = data.filter(b => b.check_in >= filter.start && (!filter.end || b.check_in <= filter.end))
     }
-    return data.slice(0, 8)
+    return data
   }, [bookings, filter])
+
+  const recentBookings = useMemo(() => filteredBookings.slice(0, 8), [filteredBookings])
+
+  const filteredStats = useMemo(() => {
+    if (!stats) return null
+    if (!filter.start) return stats
+    const fb = filteredBookings
+    const completedBookings = fb.filter(b => b.status === 'Completed').length
+    const cancelledBookings = fb.filter(b => b.status === 'Cancelled').length
+    const pendingBookings = fb.filter(b => b.status === 'Pending').length
+    const filteredRevenue = fb.reduce((sum, b) => sum + Number(b.total_price || 0), 0)
+    return {
+      ...stats,
+      total_bookings: fb.length,
+      completed_bookings: completedBookings,
+      cancelled_bookings: cancelledBookings,
+      pending_bookings: pendingBookings,
+    }
+  }, [stats, filteredBookings, filter])
+
+  const avgOccupancy = useMemo(() => {
+    if (chartData.length === 0) return 0
+    const total = chartData.reduce((sum, d) => sum + (d.occupancy || 0), 0)
+    return Math.round(total / chartData.length)
+  }, [chartData])
+
+  const filteredChartData = useMemo(() => {
+    if (!filter.start) return chartData
+    return chartData.filter(d => {
+      return true
+    })
+  }, [chartData, filter])
+
+  const filteredBookingStatusDist = useMemo(() => {
+    if (!filter.start) return bookingStatusDist
+    const map = {}
+    filteredBookings.forEach(b => {
+      map[b.status] = (map[b.status] || 0) + 1
+    })
+    return Object.entries(map).map(([status, count]) => ({ status, count }))
+  }, [filteredBookings, filter, bookingStatusDist])
+
+  const filteredPropertyPerformance = useMemo(() => {
+    if (!filter.start) return propertyPerformance
+    const propMap = {}
+    filteredBookings.forEach(b => {
+      const title = b.property_title || 'Unknown'
+      if (!propMap[title]) propMap[title] = { title, total_bookings: 0, revenue: 0 }
+      propMap[title].total_bookings++
+      propMap[title].revenue += Number(b.total_price || 0)
+    })
+    return Object.values(propMap).sort((a, b) => b.revenue - a.revenue).slice(0, 5)
+  }, [filteredBookings, filter, propertyPerformance])
+
+  const exportData = filteredBookings.map(b => ({
+    guest: b.guest_name, property: b.property_title, check_in: b.check_in, check_out: b.check_out, status: b.status, amount: b.total_price
+  }))
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -174,17 +234,19 @@ export default function HostDashboardPage() {
           <button onClick={loadData} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-secondary-text bg-white border border-divider rounded-lg hover:bg-divider transition-colors">
             <HiOutlineArrowPath className="w-3.5 h-3.5" /> Refresh
           </button>
-          <ExportButton data={bookings.map(b => ({ guest: b.guest_name, property: b.property_title, check_in: b.check_in, check_out: b.check_out, status: b.status, amount: b.total_price }))} filename="host-bookings" title="Host Bookings Report" />
+          <ExportButton data={exportData} filename="host-bookings" title="Host Bookings Report" />
         </div>
       </div>
 
       <DashboardFilter value={filter} onChange={setFilter} />
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <StatCard icon={HiOutlineBuildingOffice2} label="Total Properties" value={stats?.total_properties ?? 0} loading={loading} />
-        <StatCard icon={HiOutlineCalendarDays} label="Total Bookings" value={stats?.total_bookings ?? 0} change={stats?.bookings_this_month} isPositive={stats?.bookings_this_month > 0} loading={loading} />
+        <StatCard icon={HiOutlineCalendarDays} label="Total Bookings" value={filteredStats?.total_bookings ?? stats?.total_bookings ?? 0} change={stats?.bookings_this_month} isPositive={stats?.bookings_this_month > 0} loading={loading} />
         <StatCard icon={HiOutlineCurrencyRupee} label="Monthly Revenue" value={`₹${Number(stats?.monthly_earnings || 0).toLocaleString('en-IN')}`} change={stats?.earnings_growth_pct} isPositive={stats?.earnings_growth_pct >= 0} loading={loading} />
-        <StatCard icon={HiOutlineStar} label="Average Rating" value={stats?.average_rating?.toFixed(1) || '0.0'} change={stats?.rating_change} isPositive={stats?.rating_change >= 0} loading={loading} />
+        <StatCard icon={HiOutlineStar} label="Guest Satisfaction" value={stats?.average_rating?.toFixed(1) || '0.0'} change={stats?.rating_change} isPositive={stats?.rating_change >= 0} loading={loading} />
+        <StatCard icon={HiOutlineChartBar} label="Occupancy Rate" value={`${avgOccupancy}%`} loading={loading} />
+        <StatCard icon={HiOutlineHomeModern} label="Top Property" value={stats?.top_performing_property || 'N/A'} loading={loading} />
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -194,15 +256,15 @@ export default function HostDashboardPage() {
         </div>
         <div className="dashboard-card">
           <p className="text-xs text-secondary-text font-medium mb-1">Completed</p>
-          <p className="text-xl font-bold text-success">{stats?.completed_bookings ?? 0}</p>
+          <p className="text-xl font-bold text-success">{filteredStats?.completed_bookings ?? stats?.completed_bookings ?? 0}</p>
         </div>
         <div className="dashboard-card">
           <p className="text-xs text-secondary-text font-medium mb-1">Pending</p>
-          <p className="text-xl font-bold text-warning">{stats?.pending_bookings ?? 0}</p>
+          <p className="text-xl font-bold text-warning">{filteredStats?.pending_bookings ?? stats?.pending_bookings ?? 0}</p>
         </div>
         <div className="dashboard-card">
           <p className="text-xs text-secondary-text font-medium mb-1">Cancelled</p>
-          <p className="text-xl font-bold text-danger">{stats?.cancelled_bookings ?? 0}</p>
+          <p className="text-xl font-bold text-danger">{filteredStats?.cancelled_bookings ?? stats?.cancelled_bookings ?? 0}</p>
         </div>
       </div>
 
@@ -214,9 +276,9 @@ export default function HostDashboardPage() {
           </div>
           {loading ? (
             <div className="h-64 animate-pulse bg-divider rounded-xl" />
-          ) : chartData.length > 0 ? (
+          ) : filteredChartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={chartData}>
+              <AreaChart data={filteredChartData}>
                 <defs>
                   <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#FF385C" stopOpacity={0.15} />
@@ -255,15 +317,53 @@ export default function HostDashboardPage() {
         </div>
       </div>
 
-      {bookingStatusDist.length > 0 && (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {filteredChartData.length > 0 && (
+          <div className="dashboard-card">
+            <h2 className="text-lg font-semibold text-main-text mb-4">Booking Trend</h2>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={filteredChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                <XAxis dataKey="month_label" tick={{ fontSize: 12, fill: '#6B7280' }} />
+                <YAxis tick={{ fontSize: 12, fill: '#6B7280' }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="bookings" name="Bookings" fill="#3B82F6" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {filteredChartData.length > 0 && (
+          <div className="dashboard-card">
+            <h2 className="text-lg font-semibold text-main-text mb-4">Occupancy Trend</h2>
+            <ResponsiveContainer width="100%" height={260}>
+              <AreaChart data={filteredChartData}>
+                <defs>
+                  <linearGradient id="colorOccupancy" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#22C55E" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#22C55E" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                <XAxis dataKey="month_label" tick={{ fontSize: 12, fill: '#6B7280' }} />
+                <YAxis tick={{ fontSize: 12, fill: '#6B7280' }} domain={[0, 100]} />
+                <Tooltip content={<ChartTooltip />} />
+                <Area type="monotone" dataKey="occupancy" name="Occupancy" stroke="#22C55E" strokeWidth={2.5} fill="url(#colorOccupancy)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {filteredBookingStatusDist.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="dashboard-card">
             <h2 className="text-lg font-semibold text-main-text mb-4">Booking Status</h2>
             <ResponsiveContainer width="100%" height={260}>
               <PieChart>
-                <Pie data={bookingStatusDist} cx="50%" cy="50%" innerRadius={55} outerRadius={95} paddingAngle={4} dataKey="count" nameKey="status"
+                <Pie data={filteredBookingStatusDist} cx="50%" cy="50%" innerRadius={55} outerRadius={95} paddingAngle={4} dataKey="count" nameKey="status"
                   label={({ status, percent }) => `${status} ${(percent * 100).toFixed(0)}%`}>
-                  {bookingStatusDist.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  {filteredBookingStatusDist.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
                 <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }} />
                 <Legend />
@@ -271,33 +371,48 @@ export default function HostDashboardPage() {
             </ResponsiveContainer>
           </div>
 
-          {propertyPerformance.length > 0 && (
+          {filteredPropertyPerformance.length > 0 && (
             <div className="dashboard-card">
               <h2 className="text-lg font-semibold text-main-text mb-4">Property Performance</h2>
-              <div className="overflow-x-auto -mx-1">
-                <table className="w-full min-w-[400px]">
-                  <thead>
-                    <tr className="border-b border-divider">
-                      <th className="text-left text-xs font-semibold text-secondary-text py-2 px-4">Property</th>
-                      <th className="text-left text-xs font-semibold text-secondary-text py-2 px-4">Bookings</th>
-                      <th className="text-left text-xs font-semibold text-secondary-text py-2 px-4">Rating</th>
-                      <th className="text-left text-xs font-semibold text-secondary-text py-2 px-4">Revenue</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {propertyPerformance.slice(0, 5).map((p, i) => (
-                      <tr key={i} className="border-b border-divider last:border-0 hover:bg-background/50 transition-colors">
-                        <td className="py-3 px-4 text-sm font-medium text-main-text">{p.title}</td>
-                        <td className="py-3 px-4 text-sm text-secondary-text">{p.total_bookings}</td>
-                        <td className="py-3 px-4 text-sm text-warning">{p.avg_rating > 0 ? `★ ${p.avg_rating}` : '-'}</td>
-                        <td className="py-3 px-4 text-sm font-semibold text-main-text">₹{Number(p.revenue).toLocaleString('en-IN')}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={filteredPropertyPerformance.slice(0, 5)} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                  <XAxis type="number" tick={{ fontSize: 12, fill: '#6B7280' }} />
+                  <YAxis type="category" dataKey="title" tick={{ fontSize: 11, fill: '#6B7280' }} width={120} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Bar dataKey="revenue" name="Revenue" fill="#F43F5E" radius={[0, 6, 6, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           )}
+        </div>
+      )}
+
+      {filteredPropertyPerformance.length > 0 && (
+        <div className="dashboard-card">
+          <h2 className="text-lg font-semibold text-main-text mb-4">Property Details</h2>
+          <div className="overflow-x-auto -mx-1">
+            <table className="w-full min-w-[400px]">
+              <thead>
+                <tr className="border-b border-divider">
+                  <th className="text-left text-xs font-semibold text-secondary-text py-2 px-4">Property</th>
+                  <th className="text-left text-xs font-semibold text-secondary-text py-2 px-4">Bookings</th>
+                  <th className="text-left text-xs font-semibold text-secondary-text py-2 px-4">Rating</th>
+                  <th className="text-left text-xs font-semibold text-secondary-text py-2 px-4">Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredPropertyPerformance.slice(0, 5).map((p, i) => (
+                  <tr key={i} className="border-b border-divider last:border-0 hover:bg-background/50 transition-colors">
+                    <td className="py-3 px-4 text-sm font-medium text-main-text">{p.title}</td>
+                    <td className="py-3 px-4 text-sm text-secondary-text">{p.total_bookings}</td>
+                    <td className="py-3 px-4 text-sm text-warning">{p.avg_rating > 0 ? `★ ${p.avg_rating}` : '-'}</td>
+                    <td className="py-3 px-4 text-sm font-semibold text-main-text">₹{Number(p.revenue).toLocaleString('en-IN')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
