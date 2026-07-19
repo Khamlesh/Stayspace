@@ -36,7 +36,6 @@ import UserNotificationsPage from './pages/user/UserNotificationsPage'
 import UserProfilePage from './pages/user/UserProfilePage'
 import UserSettingsPage from './pages/user/UserSettingsPage'
 import UserComplaintsPage from './pages/user/UserComplaintsPage'
-import UserChatPage from './pages/user/UserChatPage'
 import AdminLayout from './components/admin/AdminLayout'
 import AdminDashboardPage from './pages/admin/AdminDashboardPage'
 import AdminUsersPage from './pages/admin/AdminUsersPage'
@@ -79,7 +78,6 @@ function App() {
               <Route path="explore" element={<UserExplorePage />} />
               <Route path="wishlist" element={<UserWishlistPage />} />
               <Route path="bookings" element={<UserBookingsPage />} />
-              <Route path="messages" element={<UserChatPage />} />
               <Route path="payments" element={<UserPaymentsPage />} />
               <Route path="reviews" element={<UserReviewsPage />} />
               <Route path="notifications" element={<UserNotificationsPage />} />

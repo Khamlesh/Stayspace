@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { formatRupees } from '../utils/currency'
 import { generateBookingReceipt } from '../utils/receiptGenerator'
 import { useAuth } from '../hooks/useAuth'
 import { bookingsAPI } from '../api/client'
+import chatAPI from '../api/chatApi'
 import BookingModificationModal from './BookingModificationModal'
 import CancellationModal from './CancellationModal'
 import ModificationHistory from './ModificationHistory'
@@ -28,6 +29,9 @@ import {
   HiOutlineCheckCircle,
   HiOutlineExclamationTriangle,
   HiOutlineXCircle,
+  HiOutlinePaperAirplane,
+  HiOutlineCheckBadge,
+  HiOutlineArrowSmallRight,
 } from 'react-icons/hi2'
 
 const STATUS_CONFIG = {
@@ -170,6 +174,7 @@ export default function BookingDetailsModal({
   onAction,
   actionLoading,
   onLeaveReview,
+  startChatOpen = false,
 }) {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -182,6 +187,20 @@ export default function BookingDetailsModal({
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [modifyLoading, setModifyLoading] = useState(false)
   const [cancelLoading, setCancelLoading] = useState(false)
+  const [showChat, setShowChat] = useState(false)
+  const [chatMessages, setChatMessages] = useState([])
+  const [newMessage, setNewMessage] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [conversationId, setConversationId] = useState(null)
+  const chatEndRef = useRef(null)
+  const chatInputRef = useRef(null)
+
+  useEffect(() => {
+    if (startChatOpen && b?.status && ['Confirmed', 'Checked-In', 'Completed'].includes(b.status)) {
+      setShowChat(true)
+    }
+  }, [startChatOpen, b?.status])
 
   useEffect(() => {
     if (!b) return
@@ -201,6 +220,60 @@ export default function BookingDetailsModal({
       .catch(() => {})
       .finally(() => setModsLoading(false))
   }, [b?.id])
+
+  const fetchConversation = useCallback(async () => {
+    if (!b?.id) return
+    try {
+      const res = await chatAPI.getMessages({ booking_id: b.id })
+      if (res.data.status === 'success') {
+        setChatMessages(res.data.data.messages || [])
+        setConversationId(res.data.data.conversation_id || null)
+      }
+    } catch (err) {
+      // Conversation may not exist yet
+    }
+  }, [b?.id])
+
+  const scrollToBottom = useCallback(() => {
+    setTimeout(() => {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }, 100)
+  }, [])
+
+  const handleSend = async () => {
+    if (!newMessage.trim() || sending) return
+    setSending(true)
+    try {
+      await chatAPI.sendMessage({
+        booking_id: b.id,
+        message: newMessage.trim(),
+      })
+      setNewMessage('')
+      await fetchConversation()
+      scrollToBottom()
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to send message')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  useEffect(() => {
+    if (showChat) {
+      setChatLoading(true)
+      fetchConversation().finally(() => setChatLoading(false))
+    }
+  }, [showChat, fetchConversation])
+
+  useEffect(() => {
+    if (!showChat) return
+    const interval = setInterval(fetchConversation, 5000)
+    return () => clearInterval(interval)
+  }, [showChat, fetchConversation])
+
+  useEffect(() => {
+    if (showChat && chatMessages.length > 0) scrollToBottom()
+  }, [chatMessages, showChat, scrollToBottom])
 
   const pendingMod = modifications.find(m => m.status === 'Pending')
 
@@ -602,11 +675,113 @@ export default function BookingDetailsModal({
               />
             )}
 
-            <ComingSoonCard
-              icon={HiOutlineChatBubbleOvalLeftEllipsis}
-              title="Contact Host"
-              description="Send a message directly to your host"
-            />
+            {role === 'guest' && ['Confirmed', 'Checked-In', 'Completed'].includes(b.status) && (
+              <div className="space-y-3">
+                <button
+                  onClick={() => setShowChat(!showChat)}
+                  className={`flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-200 ${
+                    showChat
+                      ? 'bg-primary text-white shadow-btn'
+                      : 'bg-primary/5 text-primary hover:bg-primary/10 border border-primary/20'
+                  }`}
+                >
+                  <HiOutlineChatBubbleOvalLeftEllipsis className="w-5 h-5 flex-shrink-0" />
+                  <span className="text-sm font-semibold">{showChat ? 'Close Chat' : 'Message Host'}</span>
+                  <HiOutlineArrowSmallRight className={`w-4 h-4 ml-auto transition-transform duration-200 ${showChat ? 'rotate-90' : ''}`} />
+                </button>
+
+                {showChat && (
+                  <div className="bg-background rounded-xl border border-divider overflow-hidden">
+                    {chatLoading ? (
+                      <div className="p-8 text-center">
+                        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                        <p className="text-xs text-secondary-text">Loading conversation...</p>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Chat Header */}
+                        <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-divider">
+                          <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                            <span className="text-primary font-semibold text-sm">{b.host_name?.charAt(0) || 'H'}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-main-text truncate">{b.host_name || 'Host'}</p>
+                            <p className="text-[10px] text-secondary-text">Typically replies within a few hours</p>
+                          </div>
+                        </div>
+
+                        {/* Messages */}
+                        <div className="max-h-[300px] overflow-y-auto px-4 py-3 space-y-3">
+                          {chatMessages.length === 0 ? (
+                            <div className="text-center py-6">
+                              <HiOutlineChatBubbleOvalLeftEllipsis className="w-10 h-10 text-divider mx-auto mb-2" />
+                              <p className="text-xs text-secondary-text">No messages yet. Start the conversation!</p>
+                            </div>
+                          ) : (
+                            chatMessages.map((msg, idx) => {
+                              const isOwn = msg.sender_role === 'guest'
+                              return (
+                                <div key={msg.id || idx} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                                  <div className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 ${
+                                    isOwn
+                                      ? 'bg-primary text-white rounded-br-md'
+                                      : 'bg-white text-main-text border border-divider rounded-bl-md'
+                                  }`}>
+                                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.message}</p>
+                                    <div className={`flex items-center gap-1 mt-1 ${isOwn ? 'justify-end' : ''}`}>
+                                      <span className={`text-[10px] ${isOwn ? 'text-white/60' : 'text-secondary-text'}`}>
+                                        {msg.created_at ? new Date(msg.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}
+                                      </span>
+                                      {isOwn && msg.is_read === 1 && (
+                                        <HiOutlineCheckBadge className="w-3 h-3 text-white/60" />
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            })
+                          )}
+                          <div ref={chatEndRef} />
+                        </div>
+
+                        {/* Input */}
+                        <div className="flex items-center gap-2 px-4 py-3 bg-white border-t border-divider">
+                          <input
+                            ref={chatInputRef}
+                            type="text"
+                            value={newMessage}
+                            onChange={(e) => setNewMessage(e.target.value.slice(0, 1000))}
+                            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+                            placeholder="Type a message..."
+                            disabled={sending}
+                            className="flex-1 text-sm text-main-text placeholder:text-secondary-text bg-background border border-divider rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all disabled:opacity-50"
+                          />
+                          <button
+                            onClick={handleSend}
+                            disabled={!newMessage.trim() || sending}
+                            className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center flex-shrink-0 hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-btn"
+                          >
+                            {sending ? (
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <HiOutlinePaperAirplane className="w-4 h-4" />
+                            )}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {role === 'guest' && !['Confirmed', 'Checked-In', 'Completed'].includes(b.status) && (
+              <ComingSoonCard
+                icon={HiOutlineChatBubbleOvalLeftEllipsis}
+                title="Contact Host"
+                description="Available after booking confirmation"
+              />
+            )}
             <ComingSoonCard
               icon={HiOutlineMap}
               title="Directions"

@@ -39,6 +39,7 @@ export default function UserBookingsPage() {
   const [activeTab, setActiveTab] = useState('all')
   const [cancellingId, setCancellingId] = useState(null)
   const [selectedBooking, setSelectedBooking] = useState(null)
+  const [startChatOpen, setStartChatOpen] = useState(false)
   const [error, setError] = useState(null)
 
   useEffect(() => {
@@ -153,6 +154,7 @@ export default function UserBookingsPage() {
               onCancel={handleCancel}
               cancellingId={cancellingId}
               onSelect={() => setSelectedBooking(booking)}
+              onOpenChat={(booking) => { setSelectedBooking(booking); setStartChatOpen(true) }}
             />
           ))}
         </div>
@@ -162,17 +164,18 @@ export default function UserBookingsPage() {
         <BookingDetailsModal
           booking={selectedBooking}
           role="guest"
-          onClose={() => setSelectedBooking(null)}
+          onClose={() => { setSelectedBooking(null); setStartChatOpen(false) }}
           onCancel={handleCancel}
           cancellingId={cancellingId}
           onLeaveReview={(propertyId) => navigate(`/properties/${propertyId}/review`)}
+          startChatOpen={startChatOpen}
         />
       )}
     </div>
   )
 }
 
-function BookingCard({ booking: b, onCancel, cancellingId, onSelect }) {
+function BookingCard({ booking: b, onCancel, cancellingId, onSelect, onOpenChat }) {
   const [imgErr, setImgErr] = useState(false)
   const canCancel = b.status === 'Pending' || b.status === 'Confirmed'
   const canReview = b.status === 'Completed' && !b.has_review
@@ -260,7 +263,7 @@ function BookingCard({ booking: b, onCancel, cancellingId, onSelect }) {
             )}
             {['Confirmed', 'Checked-In', 'Completed'].includes(b.status) && (
               <button
-                onClick={() => navigate(`/user/messages?booking_id=${b.id}`)}
+                onClick={() => onOpenChat(b)}
                 className="text-xs font-semibold text-primary hover:text-primary-hover bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1"
               >
                 <HiOutlineChatBubbleLeftRight className="w-3.5 h-3.5" />
