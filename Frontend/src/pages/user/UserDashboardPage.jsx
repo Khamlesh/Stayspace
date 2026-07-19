@@ -5,7 +5,6 @@ import userAPI from '../../api/userApi'
 import { bookingsAPI } from '../../api/client'
 import { formatRupees } from '../../utils/currency'
 import DashboardFilter from '../../components/DashboardFilter'
-import ExportButton from '../../components/ExportButton'
 import {
   HiOutlineCalendarDays, HiOutlineCheckCircle, HiOutlineHeart,
   HiOutlineCurrencyRupee, HiOutlineClock, HiOutlineMapPin,
@@ -234,14 +233,6 @@ export default function UserDashboardPage() {
       .slice(0, 6)
   }, [filteredBookings])
 
-  const exportData = filteredBookings.map(b => ({
-    property: b.property_title,
-    check_in: b.check_in,
-    check_out: b.check_out,
-    status: b.status,
-    amount: b.total_price
-  }))
-
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -253,7 +244,6 @@ export default function UserDashboardPage() {
           <button onClick={loadData} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-secondary-text bg-white border border-divider rounded-lg hover:bg-divider transition-colors">
             <HiOutlineArrowPath className="w-3.5 h-3.5" /> Refresh
           </button>
-          <ExportButton data={exportData} filename="my-bookings" title="My Bookings Report" />
         </div>
       </div>
 

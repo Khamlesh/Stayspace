@@ -223,6 +223,21 @@ export default function HostDashboardPage() {
     guest: b.guest_name, property: b.property_title, check_in: b.check_in, check_out: b.check_out, status: b.status, amount: b.total_price
   }))
 
+  const hostReportData = useMemo(() => ({
+    stats,
+    filteredStats,
+    filteredBookings,
+    recentBookings,
+    checkins,
+    reviews,
+    chartData,
+    filteredPropertyPerformance,
+    filteredBookingStatusDist,
+    avgOccupancy,
+    filter,
+  }), [stats, filteredStats, filteredBookings, recentBookings, checkins, reviews,
+    chartData, filteredPropertyPerformance, filteredBookingStatusDist, avgOccupancy, filter])
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -234,7 +249,7 @@ export default function HostDashboardPage() {
           <button onClick={loadData} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-secondary-text bg-white border border-divider rounded-lg hover:bg-divider transition-colors">
             <HiOutlineArrowPath className="w-3.5 h-3.5" /> Refresh
           </button>
-          <ExportButton data={exportData} filename="host-bookings" title="Host Bookings Report" />
+          <ExportButton data={exportData} filename="host-bookings" title="Host Bookings Report" reportType="host" reportData={hostReportData} />
         </div>
       </div>
 

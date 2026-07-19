@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useAuth } from '../../hooks/useAuth'
 import adminAPI from '../../api/adminApi'
 import { formatRupees } from '../../utils/currency'
 import DashboardFilter from '../../components/DashboardFilter'
@@ -140,6 +141,7 @@ function SkeletonGrid() {
 }
 
 export default function AdminDashboardPage() {
+  const { user } = useAuth()
   const [stats, setStats] = useState(null)
   const [bookings, setBookings] = useState([])
   const [hosts, setHosts] = useState([])
@@ -275,6 +277,27 @@ export default function AdminDashboardPage() {
     check_in: b.check_in, status: b.status, amount: b.total_price
   }))
 
+  const adminReportData = useMemo(() => ({
+    stats,
+    filteredStats,
+    filteredBookings,
+    recentBookings,
+    hosts,
+    pendingHosts,
+    complaints,
+    analyticsData,
+    topProperties,
+    topCities,
+    openComplaints,
+    resolvedComplaints,
+    cancellationRate,
+    platformGrowth,
+    filter,
+    adminName: user?.name || 'Admin',
+  }), [stats, filteredStats, filteredBookings, recentBookings, hosts, pendingHosts,
+    complaints, analyticsData, topProperties, topCities, openComplaints,
+    resolvedComplaints, cancellationRate, platformGrowth, filter, user])
+
   const handleApproveHost = async (hostId) => {
     setProcessing(true)
     try {
@@ -304,7 +327,7 @@ export default function AdminDashboardPage() {
           <button onClick={loadData} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-secondary-text bg-white border border-divider rounded-lg hover:bg-divider transition-colors">
             <HiOutlineArrowPath className="w-3.5 h-3.5" /> Refresh
           </button>
-          <ExportButton data={exportData} filename="admin-bookings" title="Platform Bookings Report" />
+          <ExportButton data={exportData} filename="admin-bookings" title="Platform Bookings Report" reportType="admin" reportData={adminReportData} />
         </div>
       </div>
 

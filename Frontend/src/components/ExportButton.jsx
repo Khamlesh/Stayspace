@@ -71,7 +71,17 @@ async function exportPDF(data, filename, title) {
   doc.save(`${filename}.pdf`)
 }
 
-export default function ExportButton({ data, filename = 'export', title = 'Report' }) {
+async function exportReportPDF(reportType, reportData, filename) {
+  if (reportType === 'admin') {
+    const { generateAdminReport } = await import('../utils/adminReportGenerator')
+    generateAdminReport(reportData)
+  } else if (reportType === 'host') {
+    const { generateHostReport } = await import('../utils/hostReportGenerator')
+    generateHostReport(reportData)
+  }
+}
+
+export default function ExportButton({ data, filename = 'export', title = 'Report', reportType, reportData }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -85,6 +95,8 @@ export default function ExportButton({ data, filename = 'export', title = 'Repor
 
   if (!data || data.length === 0) return null
 
+  const hasReport = reportType && reportData
+
   return (
     <div className="relative" ref={ref}>
       <button
@@ -97,7 +109,7 @@ export default function ExportButton({ data, filename = 'export', title = 'Repor
       {open && (
         <div className="absolute right-0 mt-1 w-44 bg-white border border-divider rounded-xl shadow-card-lg py-1 z-50 animate-slide-down">
           <button
-            onClick={() => { exportPDF(data, filename, title); setOpen(false) }}
+            onClick={() => { hasReport ? exportReportPDF(reportType, reportData, filename) : exportPDF(data, filename, title); setOpen(false) }}
             className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-main-text hover:bg-divider transition-colors"
           >
             <HiOutlineDocumentText className="w-4 h-4 text-danger" />
