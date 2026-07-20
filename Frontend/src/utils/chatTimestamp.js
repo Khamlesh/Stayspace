@@ -2,7 +2,7 @@ const IST = { timeZone: 'Asia/Kolkata' }
 
 function toISTDate(dateStr) {
   if (!dateStr) return null
-  const d = new Date(dateStr)
+  const d = new Date(dateStr.replace(' ', 'T'))
   return isNaN(d.getTime()) ? null : d
 }
 
@@ -44,10 +44,8 @@ export function getNotificationRelativeTime(dateStr) {
   const d = toISTDate(dateStr)
   if (!d) return ''
 
-  const nowIST = new Date(
-    new Date().toLocaleString('en-IN', { ...IST, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
-  )
-  const diffMs = nowIST - d
+  const now = new Date()
+  const diffMs = now - d
   const diffSec = Math.floor(diffMs / 1000)
   const diffMin = Math.floor(diffSec / 60)
   const diffHr = Math.floor(diffMin / 60)
@@ -56,11 +54,11 @@ export function getNotificationRelativeTime(dateStr) {
   if (diffMin < 60) return `${diffMin}m ago`
   if (diffHr < 24) return `${diffHr}h ago`
 
-  const todayKey = istDayKey(nowIST)
+  const todayKey = istDayKey(now)
   const msgKey = istDayKey(d)
   if (msgKey === todayKey) return `${diffHr}h ago`
 
-  const yesterday = new Date(nowIST)
+  const yesterday = new Date(now)
   yesterday.setDate(yesterday.getDate() - 1)
   if (istDayKey(yesterday) === msgKey) return 'Yesterday'
 
