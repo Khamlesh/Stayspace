@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { getNotificationRelativeTime } from '../utils/chatTimestamp'
 import {
   HiOutlineBell, HiOutlineCheck, HiOutlineTrash, HiOutlineMagnifyingGlass,
   HiOutlineCalendarDays, HiOutlineCurrencyRupee, HiOutlineStar,
@@ -20,25 +21,6 @@ const CATEGORY_CONFIG = {
 }
 
 const CATEGORIES = Object.keys(CATEGORY_CONFIG)
-
-function getRelativeTime(dateStr) {
-  if (!dateStr) return ''
-  const now = new Date()
-  const date = new Date(dateStr)
-  const diffMs = now - date
-  const diffSec = Math.floor(diffMs / 1000)
-  const diffMin = Math.floor(diffSec / 60)
-  const diffHr = Math.floor(diffMin / 60)
-  const diffDay = Math.floor(diffHr / 24)
-
-  if (diffSec < 60) return 'Just now'
-  if (diffMin < 60) return `${diffMin} minute${diffMin > 1 ? 's' : ''} ago`
-  if (diffHr < 24) return `${diffHr} hour${diffHr > 1 ? 's' : ''} ago`
-  if (diffDay === 1) return 'Yesterday'
-  if (diffDay < 7) return `${diffDay} days ago`
-  if (diffDay < 30) return `${Math.floor(diffDay / 7)} week${Math.floor(diffDay / 7) > 1 ? 's' : ''} ago`
-  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-}
 
 function getCategoryConfig(type) {
   return CATEGORY_CONFIG[type] || CATEGORY_CONFIG.system
@@ -283,7 +265,7 @@ export default function NotificationPage({ apiClient }) {
                       <p className="text-xs text-secondary-text mt-0.5 line-clamp-2">{notif.message}</p>
                     )}
                     <div className="flex items-center gap-2 mt-1.5">
-                      <span className="text-[11px] text-secondary-text">{getRelativeTime(notif.created_at)}</span>
+                      <span className="text-[11px] text-secondary-text">{getNotificationRelativeTime(notif.created_at)}</span>
                       <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${cat.bg} ${cat.color}`}>
                         {cat.label}
                       </span>

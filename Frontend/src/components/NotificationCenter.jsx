@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { getNotificationRelativeTime } from '../utils/chatTimestamp'
 import {
   HiOutlineBell, HiOutlineCheck, HiOutlineTrash, HiOutlineMagnifyingGlass,
   HiOutlineCalendarDays, HiOutlineCurrencyRupee, HiOutlineStar,
@@ -16,25 +17,6 @@ const CATEGORY_CONFIG = {
   admin:      { icon: HiOutlineUserGroup,        color: 'text-info',        bg: 'bg-info/10',        label: 'Admin' },
   system:     { icon: HiOutlineCog6Tooth,        color: 'text-secondary-text', bg: 'bg-divider',     label: 'System' },
   wishlist:   { icon: HiOutlineStar,             color: 'text-primary',     bg: 'bg-primary/10',     label: 'Wishlist' },
-}
-
-function getRelativeTime(dateStr) {
-  if (!dateStr) return ''
-  const now = new Date()
-  const date = new Date(dateStr)
-  const diffMs = now - date
-  const diffSec = Math.floor(diffMs / 1000)
-  const diffMin = Math.floor(diffSec / 60)
-  const diffHr = Math.floor(diffMin / 60)
-  const diffDay = Math.floor(diffHr / 24)
-
-  if (diffSec < 60) return 'Just now'
-  if (diffMin < 60) return `${diffMin}m ago`
-  if (diffHr < 24) return `${diffHr}h ago`
-  if (diffDay === 1) return 'Yesterday'
-  if (diffDay < 7) return `${diffDay}d ago`
-  if (diffDay < 30) return `${Math.floor(diffDay / 7)}w ago`
-  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
 }
 
 function getCategoryConfig(type) {
@@ -244,7 +226,7 @@ export default function NotificationCenter({ apiClient, basePath, onUnreadChange
                             <p className="text-xs text-secondary-text mt-0.5 line-clamp-1">{notif.message}</p>
                           )}
                           <div className="flex items-center gap-2 mt-1.5">
-                            <span className="text-[11px] text-secondary-text">{getRelativeTime(notif.created_at)}</span>
+                            <span className="text-[11px] text-secondary-text">{getNotificationRelativeTime(notif.created_at)}</span>
                             <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${cat.bg} ${cat.color}`}>
                               {cat.label}
                             </span>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import chatAPI from '../../api/chatApi'
+import { formatMessageTime, formatPreviewTime } from '../../utils/chatTimestamp'
 import {
   HiOutlineChatBubbleLeftRight,
   HiOutlineMagnifyingGlass,
@@ -74,22 +75,6 @@ export default function AdminChatPage() {
   const handleSearch = (e) => {
     e.preventDefault()
     setSearch(searchInput)
-  }
-
-  const formatTime = (dateStr) => {
-    if (!dateStr) return ''
-    const d = new Date(dateStr)
-    return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
-  }
-
-  const formatPreviewTime = (dateStr) => {
-    if (!dateStr) return ''
-    const d = new Date(dateStr)
-    const now = new Date()
-    const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24))
-    if (diffDays === 0) return formatTime(dateStr)
-    if (diffDays === 1) return 'Yesterday'
-    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
   }
 
   const activeConv = conversations.find(c => c.conversation_id === activeConvId)
@@ -219,7 +204,7 @@ export default function AdminChatPage() {
                             {msg.sender_role}
                           </p>
                           <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.message}</p>
-                          <p className="text-[10px] text-secondary-text mt-1">{formatTime(msg.created_at)}</p>
+                          <p className="text-[10px] text-secondary-text mt-1">{formatMessageTime(msg.created_at)}</p>
                         </div>
                       </div>
                     )

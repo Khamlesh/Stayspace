@@ -5,6 +5,7 @@ import { generateBookingReceipt } from '../utils/receiptGenerator'
 import { useAuth } from '../hooks/useAuth'
 import { bookingsAPI } from '../api/client'
 import chatAPI from '../api/chatApi'
+import { formatMessageTime } from '../utils/chatTimestamp'
 import BookingModificationModal from './BookingModificationModal'
 import CancellationModal from './CancellationModal'
 import ModificationHistory from './ModificationHistory'
@@ -761,7 +762,7 @@ export default function BookingDetailsModal({
                                     <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.message}</p>
                                     <div className={`flex items-center gap-1 mt-1 ${isOwn ? 'justify-end' : ''}`}>
                                       <span className={`text-[10px] ${isOwn ? 'text-white/60' : 'text-secondary-text'}`}>
-                                        {msg.created_at ? new Date(msg.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}
+                                        {msg.created_at ? formatMessageTime(msg.created_at) : ''}
                                       </span>
                                       {isOwn && msg.is_read === 1 && (
                                         <HiOutlineCheckBadge className="w-3 h-3 text-white/60" />
