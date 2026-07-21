@@ -4,7 +4,7 @@ import {
   drawTable, drawDisclaimer, checkPageBreak, addFooters,
   BRAND, DARK, GRAY, PW, ML, MR, CW,
 } from './pdfBranding'
-import { formatRupees } from './currency'
+import { formatRupeesPDF, formatCountPDF } from './currency'
 
 function formatDate(d) {
   if (!d) return 'N/A'
@@ -49,32 +49,32 @@ export function generateHostReport(data) {
 
   y = drawSectionTitle(doc, y, 'PROPERTIES')
   y = drawStatCards(doc, y, [
-    { label: 'Total Properties', value: stats?.total_properties ?? 0 },
+    { label: 'Total Properties', value: formatCountPDF(stats?.total_properties ?? 0) },
     { label: 'Top Performing Property', value: stats?.top_performing_property || 'N/A' },
   ])
 
   y += 2
   y = drawSectionTitle(doc, y, 'BOOKINGS')
   y = drawStatCards(doc, y, [
-    { label: 'Total Bookings', value: filteredStats?.total_bookings ?? stats?.total_bookings ?? 0 },
-    { label: 'Completed', value: filteredStats?.completed_bookings ?? stats?.completed_bookings ?? 0, colorR: 34, colorG: 197, colorB: 94 },
-    { label: 'Pending', value: filteredStats?.pending_bookings ?? stats?.pending_bookings ?? 0, colorR: 245, colorG: 158, colorB: 11 },
-    { label: 'Cancelled', value: filteredStats?.cancelled_bookings ?? stats?.cancelled_bookings ?? 0, colorR: 239, colorG: 68, colorB: 68 },
+    { label: 'Total Bookings', value: formatCountPDF(filteredStats?.total_bookings ?? stats?.total_bookings ?? 0) },
+    { label: 'Completed', value: formatCountPDF(filteredStats?.completed_bookings ?? stats?.completed_bookings ?? 0), colorR: 34, colorG: 197, colorB: 94 },
+    { label: 'Pending', value: formatCountPDF(filteredStats?.pending_bookings ?? stats?.pending_bookings ?? 0), colorR: 245, colorG: 158, colorB: 11 },
+    { label: 'Cancelled', value: formatCountPDF(filteredStats?.cancelled_bookings ?? stats?.cancelled_bookings ?? 0), colorR: 239, colorG: 68, colorB: 68 },
   ])
 
   y += 2
   y = drawSectionTitle(doc, y, 'REVENUE')
   y = drawStatCards(doc, y, [
-    { label: 'Monthly Revenue', value: formatRupees(stats?.monthly_earnings ?? 0), colorR: BRAND.r, colorG: BRAND.g, colorB: BRAND.b },
-    { label: 'Annual Revenue', value: formatRupees(stats?.annual_earnings ?? 0) },
+    { label: 'Monthly Revenue', value: formatRupeesPDF(stats?.monthly_earnings ?? 0), colorR: BRAND.r, colorG: BRAND.g, colorB: BRAND.b },
+    { label: 'Annual Revenue', value: formatRupeesPDF(stats?.annual_earnings ?? 0) },
   ])
 
   y += 2
   y = drawSectionTitle(doc, y, 'SATISFACTION')
   y = drawStatCards(doc, y, [
-    { label: 'Average Rating', value: stats?.average_rating?.toFixed(1) || '0.0', colorR: 245, colorG: 158, colorB: 11 },
+    { label: 'Average Rating', value: stats?.average_rating != null ? Number(stats.average_rating).toFixed(1) : '0.0', colorR: 245, colorG: 158, colorB: 11 },
     { label: 'Occupancy Rate', value: `${avgOccupancy ?? 0}%` },
-    { label: 'Rating Change', value: stats?.rating_change != null ? `${stats.rating_change >= 0 ? '+' : ''}${stats.rating_change.toFixed(1)}` : 'N/A' },
+    { label: 'Rating Change', value: stats?.rating_change != null ? `${stats.rating_change >= 0 ? '+' : ''}${Number(stats.rating_change).toFixed(1)}` : 'N/A' },
   ])
 
   if (chartData && chartData.length > 0) {
@@ -84,7 +84,7 @@ export function generateHostReport(data) {
       ['Month', 'Earnings', 'Bookings', 'Occupancy'],
       chartData.map(d => [
         d.month_label || '-',
-        formatRupees(d.earnings ?? 0),
+        formatRupeesPDF(d.earnings ?? 0),
         String(d.bookings ?? 0),
         `${d.occupancy ?? 0}%`,
       ])
@@ -122,7 +122,7 @@ export function generateHostReport(data) {
       filteredPropertyPerformance.map(p => [
         p.title || '-',
         String(p.total_bookings ?? 0),
-        formatRupees(p.revenue ?? 0),
+        formatRupeesPDF(p.revenue ?? 0),
         p.avg_rating > 0 ? `${p.avg_rating}` : '-',
       ]),
       { columnStyles: { 2: { halign: 'right' } } }
@@ -142,7 +142,7 @@ export function generateHostReport(data) {
         b.check_out || '-',
         String(b.guests_count ?? b.guests ?? 1),
         b.status || '-',
-        formatRupees(b.total_price ?? 0),
+        formatRupeesPDF(b.total_price ?? 0),
       ]),
       { columnStyles: { 7: { halign: 'right' } } }
     )

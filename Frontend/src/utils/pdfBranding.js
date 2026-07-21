@@ -117,6 +117,11 @@ export function drawSectionTitle(doc, y, title) {
   return y
 }
 
+export function sanitizePDFText(text) {
+  if (text == null) return 'N/A'
+  return String(text).replace(/[^\x00-\xFF]/g, '')
+}
+
 export function drawStatCards(doc, y, cards, columns = 3) {
   const cardW = (CW - (columns - 1) * 8) / columns
   const cardH = 16
@@ -134,7 +139,7 @@ export function drawStatCards(doc, y, cards, columns = 3) {
     doc.setFontSize(7)
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(GRAY.r, GRAY.g, GRAY.b)
-    doc.text(card.label, x + cardW / 2, cy + 5, { align: 'center' })
+    doc.text(sanitizePDFText(card.label), x + cardW / 2, cy + 5, { align: 'center' })
 
     doc.setFontSize(10)
     doc.setFont('helvetica', 'bold')
@@ -143,7 +148,7 @@ export function drawStatCards(doc, y, cards, columns = 3) {
     } else {
       doc.setTextColor(DARK.r, DARK.g, DARK.b)
     }
-    doc.text(String(card.value ?? 'N/A'), x + cardW / 2, cy + 12, { align: 'center' })
+    doc.text(sanitizePDFText(card.value ?? 'N/A'), x + cardW / 2, cy + 12, { align: 'center' })
   })
 
   const totalRows = Math.ceil(cards.length / columns)

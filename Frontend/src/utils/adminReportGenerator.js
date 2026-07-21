@@ -4,7 +4,7 @@ import {
   drawTable, drawDisclaimer, checkPageBreak, addFooters,
   BRAND, DARK, GRAY, RED, PW, ML, MR, CW,
 } from './pdfBranding'
-import { formatRupees } from './currency'
+import { formatRupeesPDF, formatCountPDF } from './currency'
 
 function formatDate(d) {
   if (!d) return 'N/A'
@@ -49,17 +49,17 @@ export function generateAdminReport(data) {
 
   y = drawSectionTitle(doc, y, 'PLATFORM OVERVIEW')
   y = drawStatCards(doc, y, [
-    { label: 'Total Users', value: stats?.total_users ?? 0 },
-    { label: 'Total Guests', value: stats?.total_guests ?? 0 },
-    { label: 'Total Hosts', value: stats?.total_hosts ?? 0 },
-    { label: 'Total Properties', value: stats?.total_properties ?? 0 },
-    { label: 'Active Bookings', value: filteredStats?.active_bookings ?? stats?.active_bookings ?? 0 },
-    { label: 'Completed Bookings', value: filteredStats?.completed_bookings ?? stats?.completed_bookings ?? 0 },
-    { label: 'Cancelled Bookings', value: filteredStats?.cancelled_bookings ?? stats?.cancelled_bookings ?? 0 },
-    { label: 'Pending Hosts', value: stats?.pending_hosts ?? 0, colorR: 245, colorG: 158, colorB: 11 },
-    { label: 'Total Complaints', value: stats?.total_complaints ?? 0 },
-    { label: 'Open Complaints', value: openComplaints ?? 0, colorR: 245, colorG: 158, colorB: 11 },
-    { label: 'Total Reviews', value: stats?.total_reviews ?? 0 },
+    { label: 'Total Users', value: formatCountPDF(stats?.total_users ?? 0) },
+    { label: 'Total Guests', value: formatCountPDF(stats?.total_guests ?? 0) },
+    { label: 'Total Hosts', value: formatCountPDF(stats?.total_hosts ?? 0) },
+    { label: 'Total Properties', value: formatCountPDF(stats?.total_properties ?? 0) },
+    { label: 'Active Bookings', value: formatCountPDF(filteredStats?.active_bookings ?? stats?.active_bookings ?? 0) },
+    { label: 'Completed Bookings', value: formatCountPDF(filteredStats?.completed_bookings ?? stats?.completed_bookings ?? 0) },
+    { label: 'Cancelled Bookings', value: formatCountPDF(filteredStats?.cancelled_bookings ?? stats?.cancelled_bookings ?? 0) },
+    { label: 'Pending Hosts', value: formatCountPDF(stats?.pending_hosts ?? 0), colorR: 245, colorG: 158, colorB: 11 },
+    { label: 'Total Complaints', value: formatCountPDF(stats?.total_complaints ?? 0) },
+    { label: 'Open Complaints', value: formatCountPDF(openComplaints ?? 0), colorR: 245, colorG: 158, colorB: 11 },
+    { label: 'Total Reviews', value: formatCountPDF(stats?.total_reviews ?? 0) },
     { label: 'Platform Growth', value: platformGrowth || '0%' },
     { label: 'Cancellation Rate', value: `${cancellationRate || 0}%`, colorR: RED.r, colorG: RED.g, colorB: RED.b },
   ])
@@ -67,9 +67,9 @@ export function generateAdminReport(data) {
   y += 2
   y = drawSectionTitle(doc, y, 'REVENUE')
   y = drawStatCards(doc, y, [
-    { label: 'Platform Revenue', value: formatRupees(stats?.total_revenue ?? 0), colorR: BRAND.r, colorG: BRAND.g, colorB: BRAND.b },
-    { label: 'Monthly Revenue', value: formatRupees(stats?.revenue_this_month ?? 0) },
-    { label: 'Host Revenue', value: formatRupees(stats?.host_revenue ?? 0) },
+    { label: 'Platform Revenue', value: formatRupeesPDF(stats?.total_revenue ?? 0), colorR: BRAND.r, colorG: BRAND.g, colorB: BRAND.b },
+    { label: 'Monthly Revenue', value: formatRupeesPDF(stats?.revenue_this_month ?? 0) },
+    { label: 'Host Revenue', value: formatRupeesPDF(stats?.host_revenue ?? 0) },
   ])
 
   const headerTitle = TITLE
@@ -142,7 +142,7 @@ export function generateAdminReport(data) {
     y = drawSectionTitle(doc, y, 'TOP CITIES')
     y = drawTable(doc, y,
       ['City', 'Bookings', 'Revenue'],
-      topCities.map(d => [d.city || '-', String(d.bookings ?? 0), formatRupees(d.revenue ?? 0)])
+      topCities.map(d => [d.city || '-', String(d.bookings ?? 0), formatRupeesPDF(d.revenue ?? 0)])
     )
   }
 
@@ -156,7 +156,7 @@ export function generateAdminReport(data) {
         d.host_name || '-',
         String(d.bookings ?? d.total_bookings ?? 0),
         d.avg_rating > 0 ? `${d.avg_rating}` : '-',
-        formatRupees(d.revenue ?? 0),
+        formatRupeesPDF(d.revenue ?? 0),
       ])
     )
   }
@@ -174,7 +174,7 @@ export function generateAdminReport(data) {
         b.check_in || '-',
         b.check_out || '-',
         b.status || '-',
-        formatRupees(b.total_price ?? 0),
+        formatRupeesPDF(b.total_price ?? 0),
       ]),
       { columnStyles: { 7: { halign: 'right' } } }
     )
