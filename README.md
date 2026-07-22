@@ -2,7 +2,7 @@
 
 # StaySpace
 
-### A Complete Vacation Rental Booking Platform
+### A Complete Vacation Booking Platform
 
 **Book stays. Manage properties. Grow your business.**
 
